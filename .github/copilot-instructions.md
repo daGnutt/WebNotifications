@@ -21,7 +21,8 @@ Android device / curl
   server.js  ──── SQLite (notifications.db)
        │                 ├── users
        │                 ├── notifications
-       │                 └── push_subscriptions
+       │                 ├── push_subscriptions
+       │                 └── reset_codes
        │
        ├── web-push ──► browser Service Worker (public/service-worker.js)
        └── static  ──► public/index.html (SPA, no framework)
@@ -36,6 +37,12 @@ Android device / curl
 - Passwords are hashed with Node's built-in `crypto.scrypt` + random salt, stored as `salt:hash` in `users.password_hash`.
 - The frontend persists the session in `localStorage` and re-validates it against `GET /api/users/:userId` on page load.
 - `password_hash` is never returned by any GET endpoint.
+- Account reset: `POST /api/auth/reset-request` emails a 6-digit code (15 min TTL, stored in `reset_codes`). `POST /api/auth/reset-confirm` verifies the code, wipes all user data, and recreates the account with a new GUID and password.
+
+**`requireUserId` middleware:**
+- Applied to all data endpoints (notifications, subscribe, send-push, etc.).
+- Reads `userId` from `req.query.userId` or `req.body.userId`, validates it against the DB, and attaches the full user row as `req.user`. Returns 401 if absent or unrecognised.
+- Auth endpoints (`/api/auth`, `/api/auth/reset-*`) and `/api/vapid-public-key` are intentionally exempt.
 
 **Push subscription ownership:**
 - Subscriptions are stored with an optional `user_id`. When sending, if a `userId` is supplied the push goes only to that user's subscriptions; otherwise it broadcasts to all.
@@ -43,6 +50,13 @@ Android device / curl
 
 **Service worker behaviour:**
 - Push notifications are only shown by the service worker when **no** browser tab is open. If a tab is open, the page relies on its 5-second poll instead.
+- Cache version is currently `web-notifications-v3`. Bump it in `service-worker.js` whenever any cached asset changes, otherwise normal reloads serve stale content.
+
+**Frontend animations:**
+- `initialLoadDone` flag (set after first successful render, reset on logout): prevents the 2-second notification delay on page load/reload; new arrivals during a live session get the delay.
+- Incoming notifications trigger a 4px fixed indicator bar at the top of the page (breathes green), then slide in with `slideInNotification` + `glowPulse` CSS.
+- Dismissed notifications get the `dismissNotification` CSS (slide right + red glow); the API DELETE fires via `animationend`, not a timeout.
+- Favicon is canvas-drawn (no external image) and updated on every poll: shows the unread count badge, rings the bell on new arrivals via `animateFaviconBell`.
 
 ## Key conventions
 

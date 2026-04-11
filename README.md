@@ -38,14 +38,16 @@ Copy `secrets.example.json` to `secrets.json` and fill in your SMTP details to e
 
 Sign in (or register) with a username and password. Once signed in you can:
 
-- View and dismiss notifications (optionally filtered to your own)
+- View and dismiss your notifications
 - Click your user ID to copy it to the clipboard
 - Set or update your email address (used for account reset)
 - Reset your account via a 6-digit email code (deletes all data and recreates the account)
 
-The page polls for new notifications every 5 seconds. Browser push notifications are delivered via the service worker when no tab is open.
+The page polls for new notifications every 5 seconds. Browser push notifications are delivered via the service worker when no tab is open. Incoming notifications slide in with an animation; dismissed notifications fade out with a red flash. The favicon badge shows the unread count.
 
 ## API
+
+> **All data endpoints require a valid `userId`** (obtained from `POST /api/auth`). Requests without a recognised `userId` return `401 Unauthorized`. The only unauthenticated endpoints are `/api/auth`, `/api/auth/reset-*`, and `/api/vapid-public-key`.
 
 ### Authentication
 
@@ -64,10 +66,11 @@ The page polls for new notifications every 5 seconds. Browser push notifications
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/notifications` | Receive a notification (fans out push to subscribers). |
-| `GET` | `/api/notifications?userId=<id>` | List notifications, optionally filtered by user. |
-| `DELETE` | `/api/notifications/:id` | Dismiss a notification. |
+| `POST` | `/api/notifications` | Receive a notification (fans out push to subscribers). Requires `userId`. |
+| `GET` | `/api/notifications?userId=<id>` | List notifications for the given user. |
+| `DELETE` | `/api/notifications/:id` | Dismiss a notification (only the owning user may delete). |
 | `POST` | `/api/notifications/:id/actions` | Record an action (e.g. quick reply) on a notification. |
+| `POST` | `/api/send-push` | Trigger a web-push to all subscriptions for the given user without storing a notification. |
 
 **Send a notification to a specific user:**
 ```bash
