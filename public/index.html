@@ -277,6 +277,7 @@
         let unreadCount = 0;
         let pendingNotifications = null;   // staged while heads-up banner is showing
         let headsUpTimeout = null;
+        let initialLoadDone = false;
         const HEADS_UP_MS = 2000;
 
         // ── User management ──────────────────────────────────────────────────
@@ -411,6 +412,7 @@
 
         function logout() {
             currentUser = null;
+            initialLoadDone = false;
             localStorage.removeItem('currentUser');
 
             document.getElementById('login-form').style.display = 'flex';
@@ -501,7 +503,7 @@
 
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
 
-                if (newOnes.length > 0) {
+                if (newOnes.length > 0 && initialLoadDone) {
                     // Stage the incoming notifications and warn the user first
                     pendingNotifications = { notifications, newIds: new Set(newOnes.map(n => n.id)) };
                     animateFaviconBell();
@@ -518,14 +520,17 @@
                             displayNotifications(pending, newIds);
                             unreadCount = pending.length;
                             updateTitleWithCount();
+                            initialLoadDone = true;
                         }
                     }, HEADS_UP_MS);
                 } else {
-                    // No new arrivals — re-render quietly (handles external dismissals)
+                    // No new arrivals (or initial load) — render immediately
                     if (!headsUpTimeout) {
+                        notifications.forEach(n => shownNotificationIds.add(n.id));
                         displayNotifications(notifications, new Set());
                         unreadCount = notifications.length;
                         updateTitleWithCount();
+                        initialLoadDone = true;
                     } else {
                         // While banner is showing, keep pending up to date
                         if (pendingNotifications) pendingNotifications.notifications = notifications;
