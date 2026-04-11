@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Web Notifications</title>
+    <style>
+        :root {
+            --bg-color: #f5f5f5;
+            --text-color: #333;
+            --card-bg: white;
+            --header-color: #666;
+            --action-bg: #4CAF50;
+            --dismiss-bg: #f44336;
+            --border-color: #ddd;
+        }
+        
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --bg-color: #121212;
+                --text-color: #e0e0e0;
+                --card-bg: #1e1e1e;
+                --header-color: #999;
+                --action-bg: #4CAF50;
+                --dismiss-bg: #f44336;
+                --border-color: #444;
+            }
+        }
+        
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            transition: background-color 0.3s, color 0.3s;
+        }
+        h1 {
+            color: var(--text-color);
+            text-align: center;
+        }
+        .notification {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 15px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: relative;
+            border: 1px solid var(--border-color);
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        .notification-header {
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 10px;
+        }
+        .notification-title {
+            font-weight: bold;
+            font-size: 16px;
+            color: var(--text-color);
+        }
+        .notification-time {
+            color: var(--header-color);
+            font-size: 12px;
+        }
+        .notification-body {
+            color: var(--text-color);
+            margin-bottom: 10px;
+        }
+        .notification-actions {
+            display: flex;
+            gap: 10px;
+            margin-top: 10px;
+        }
+        .action-button {
+            padding: 5px 10px;
+            background-color: var(--action-bg);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .dismiss-button {
+            padding: 5px 10px;
+            background-color: var(--dismiss-bg);
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .reply-input {
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            margin-right: 5px;
+            flex-grow: 1;
+            background-color: var(--card-bg);
+            color: var(--text-color);
+        }
+        .no-notifications {
+            text-align: center;
+            color: var(--header-color);
+            margin-top: 50px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Web Notifications</h1>
+    <div id="notifications-container"></div>
+    
+    <script>
+        // Function to apply theme based on system preference
+        function applyTheme() {
+            const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.body.classList.toggle('dark-mode', isDarkMode);
+        }
+        
+        // Listen for system theme changes
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+            document.body.classList.toggle('dark-mode', e.matches);
+        });
+        
+        // Apply theme on page load
+        applyTheme();
+        
+        // Register service worker and request notification permission
+        registerServiceWorker();
+        requestNotificationPermission();
+        
+        // Track which notifications have been shown as browser notifications
+        let shownNotificationIds = new Set();
+        
+        // Register service worker for push notifications
+        function registerServiceWorker() {
+            if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function() {
+                    navigator.serviceWorker.register('/service-worker.js')
+                        .then(function(registration) {
+                            console.log('ServiceWorker registration successful');
+                        })
+                        .catch(function(err) {
+                            console.log('ServiceWorker registration failed: ', err);
+                        });
+                });
+            }
+        }
+        
+        // Request notification permission from the user
+        function requestNotificationPermission() {
+            if (!('Notification' in window)) {
+                console.log('This browser does not support desktop notifications');
+                return;
+            }
+            
+            if (Notification.permission === 'granted') {
+                console.log('Notification permission already granted');
+                subscribeToPushNotifications();
+                return;
+            }
+            
+            Notification.requestPermission().then((permission) => {
+                if (permission === 'granted') {
+                    console.log('Notification permission granted');
+                    subscribeToPushNotifications();
+                } else {
+                    console.log('Notification permission denied');
+                }
+            });
+        }
+        
+        // Subscribe to push notifications
+        async function subscribeToPushNotifications() {
+            try {
+                // Fetch VAPID public key from server
+                const vapidResponse = await fetch('/api/vapid-public-key');
+                const { publicKey } = await vapidResponse.json();
+                
+                const registration = await navigator.serviceWorker.ready;
+                const subscription = await registration.pushManager.subscribe({
+                    userVisibleOnly: true,
+                    applicationServerKey: urlBase64ToUint8Array(publicKey)
+                });
+                
+                console.log('Push subscription established:', subscription);
+                await sendSubscriptionToServer(subscription);
+                
+            } catch (error) {
+                console.error('Error subscribing to push notifications:', error);
+            }
+        }
+        
+        // Send subscription to server
+        async function sendSubscriptionToServer(subscription) {
+            try {
+                const response = await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(subscription)
+                });
+                
+                if (response.ok) {
+                    console.log('Subscription successfully sent to server');
+                } else {
+                    console.error('Failed to send subscription to server');
+                }
+            } catch (error) {
+                console.error('Error sending subscription to server:', error);
+            }
+        }
+        
+        // Helper function to convert VAPID key
+        function urlBase64ToUint8Array(base64String) {
+            const padding = '='.repeat((4 - base64String.length % 4) % 4);
+            const base64 = (base64String + padding)
+                .replace(/-/g, '+')
+                .replace(/_/g, '/');
+            
+            const rawData = window.atob(base64);
+            const outputArray = new Uint8Array(rawData.length);
+            
+            for (let i = 0; i < rawData.length; ++i) {
+                outputArray[i] = rawData.charCodeAt(i);
+            }
+            
+            return outputArray;
+        }
+        
+        // Show browser notification
+        function showBrowserNotification(notification) {
+            if (!('Notification' in window) || Notification.permission !== 'granted') {
+                return;
+            }
+            
+            const options = {
+                body: notification.body || '',
+                icon: '/icon.png',
+                data: {
+                    notificationId: notification.id
+                }
+            };
+            
+            const browserNotification = new Notification(notification.title || 'Notification', options);
+            
+            // Close the browser notification when clicked
+            browserNotification.onclick = function(event) {
+                event.preventDefault();
+                window.focus();
+                browserNotification.close();
+            };
+        }
+        
+        // Fetch and display notifications
+        async function fetchNotifications() {
+            try {
+                const response = await fetch('/api/notifications');
+                const notifications = await response.json();
+                displayNotifications(notifications);
+                
+                // Show browser notifications for new notifications that haven't been shown yet
+                notifications.forEach(notification => {
+                    if (!shownNotificationIds.has(notification.id)) {
+                        showBrowserNotification(notification);
+                        shownNotificationIds.add(notification.id);
+                    }
+                });
+            } catch (error) {
+                console.error('Error fetching notifications:', error);
+            }
+        }
+        
+        function displayNotifications(notifications) {
+            const container = document.getElementById('notifications-container');
+            
+            if (notifications.length === 0) {
+                container.innerHTML = '<div class="no-notifications">No active notifications</div>';
+                return;
+            }
+            
+            container.innerHTML = notifications.map(notification => `
+                <div class="notification" id="notification-${notification.id}">
+                    <div class="notification-header">
+                        <div class="notification-title">${notification.title || 'Notification'}</div>
+                        <div class="notification-time">${formatTime(notification.timestamp)}</div>
+                    </div>
+                    <div class="notification-body">${notification.body || ''}</div>
+                    ${notification.actions ? renderActions(notification) : ''}
+                    <button class="dismiss-button" onclick="dismissNotification('${notification.id}')">Dismiss</button>
+                </div>
+            `).join('');
+        }
+        
+        function renderActions(notification) {
+            if (!notification.actions || notification.actions.length === 0) return '';
+            
+            return `
+                <div class="notification-actions">
+                    ${notification.actions.map(action => `
+                        ${action.type === 'reply' ? 
+                            `<input type="text" class="reply-input" id="reply-${notification.id}" placeholder="Reply...">
+                             <button class="action-button" onclick="handleAction('${notification.id}', '${action.type}', document.getElementById('reply-${notification.id}').value)">Send</button>`
+                            : 
+                            `<button class="action-button" onclick="handleAction('${notification.id}', '${action.type}')">${action.title}</button>`}
+                    `).join('')}
+                </div>
+            `;
+        }
+        
+        function formatTime(timestamp) {
+            const date = new Date(timestamp);
+            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        }
+        
+        async function dismissNotification(id) {
+            try {
+                await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+                document.getElementById(`notification-${id}`).remove();
+            } catch (error) {
+                console.error('Error dismissing notification:', error);
+            }
+        }
+        
+        async function handleAction(notificationId, actionType, response) {
+            try {
+                await fetch(`/api/notifications/${notificationId}/actions`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: actionType, response: response })
+                });
+                
+                // Remove the notification after action is handled
+                document.getElementById(`notification-${notificationId}`).remove();
+            } catch (error) {
+                console.error('Error handling action:', error);
+            }
+        }
+        
+        // Fetch notifications every 5 seconds
+        fetchNotifications();
+        setInterval(fetchNotifications, 5000);
+    </script>
+</body>
+</html>
