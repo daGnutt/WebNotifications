@@ -105,6 +105,42 @@
             color: var(--header-color);
             margin-top: 50px;
         }
+
+        /* ── Incoming notification animations ── */
+        @keyframes slideInNotification {
+            from { opacity: 0; transform: translateY(-24px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0)     scale(1); }
+        }
+        @keyframes glowPulse {
+            0%, 100% { box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            50%       { box-shadow: 0 0 0 4px rgba(76,175,80,0.35), 0 2px 8px rgba(76,175,80,0.2); }
+        }
+        .notification-new {
+            animation:
+                slideInNotification 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+                glowPulse 0.7s ease 0.4s 3;
+        }
+
+        /* ── Heads-up banner ── */
+        .heads-up-banner {
+            border: 1px solid #4CAF50;
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-bottom: 12px;
+            font-size: 13px;
+            color: #4CAF50;
+            overflow: hidden;
+            position: relative;
+            background-color: var(--card-bg);
+        }
+        .heads-up-progress {
+            position: absolute;
+            bottom: 0; left: 0;
+            height: 3px;
+            background-color: #4CAF50;
+            width: 100%;
+            transition: width var(--heads-up-ms, 2000ms) linear;
+        }
         .user-bar {
             display: flex;
             align-items: center;
@@ -181,6 +217,10 @@
 <body>
     <h1>Web Notifications</h1>
 
+    <div id="heads-up-banner" class="heads-up-banner" style="display:none">
+        <span id="heads-up-text"></span>
+        <div class="heads-up-progress" id="heads-up-progress"></div>
+    </div>
     <div id="notifications-container"></div>
 
     <!-- User bar -->
@@ -231,8 +271,6 @@
         </div>
     </div>
 
-    <div id="notifications-container"></div>
-    
     <script>
         // ── Theme ────────────────────────────────────────────────────────────
         window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
@@ -244,6 +282,9 @@
         let currentUser = null;  // { userId, username }
         let shownNotificationIds = new Set();
         let unreadCount = 0;
+        let pendingNotifications = null;   // staged while heads-up banner is showing
+        let headsUpTimeout = null;
+        const HEADS_UP_MS = 2000;
 
         // ── User management ──────────────────────────────────────────────────
         async function loginOrRegister() {
@@ -462,28 +503,72 @@
             }
             try {
                 const url = `/api/notifications?userId=${currentUser.userId}`;
-
                 const response = await fetch(url);
                 const notifications = await response.json();
-                displayNotifications(notifications);
 
-                unreadCount = notifications.length;
-                updateTitleWithCount();
+                const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
 
-                notifications.forEach(n => shownNotificationIds.add(n.id));
+                if (newOnes.length > 0) {
+                    // Stage the incoming notifications and warn the user first
+                    pendingNotifications = { notifications, newIds: new Set(newOnes.map(n => n.id)) };
+                    animateFaviconBell();
+                    showHeadsUpBanner(newOnes.length);
+
+                    if (headsUpTimeout) clearTimeout(headsUpTimeout);
+                    headsUpTimeout = setTimeout(() => {
+                        headsUpTimeout = null;
+                        hideHeadsUpBanner();
+                        if (pendingNotifications) {
+                            const { notifications: pending, newIds } = pendingNotifications;
+                            pendingNotifications = null;
+                            pending.forEach(n => shownNotificationIds.add(n.id));
+                            displayNotifications(pending, newIds);
+                            unreadCount = pending.length;
+                            updateTitleWithCount();
+                        }
+                    }, HEADS_UP_MS);
+                } else {
+                    // No new arrivals — re-render quietly (handles external dismissals)
+                    if (!headsUpTimeout) {
+                        displayNotifications(notifications, new Set());
+                        unreadCount = notifications.length;
+                        updateTitleWithCount();
+                    } else {
+                        // While banner is showing, keep pending up to date
+                        if (pendingNotifications) pendingNotifications.notifications = notifications;
+                    }
+                }
             } catch (error) {
                 console.error('Error fetching notifications:', error);
             }
         }
 
-        function displayNotifications(notifications) {
+        function showHeadsUpBanner(count) {
+            const banner = document.getElementById('heads-up-banner');
+            const bar = document.getElementById('heads-up-progress');
+            document.getElementById('heads-up-text').textContent =
+                `🔔 ${count} new notification${count > 1 ? 's' : ''} arriving…`;
+            banner.style.setProperty('--heads-up-ms', `${HEADS_UP_MS}ms`);
+            bar.style.width = '100%';
+            banner.style.display = 'block';
+            // Trigger the shrink transition on the next frame
+            requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = '0%'; }));
+        }
+
+        function hideHeadsUpBanner() {
+            document.getElementById('heads-up-banner').style.display = 'none';
+            document.getElementById('heads-up-progress').style.width = '100%';
+        }
+
+        function displayNotifications(notifications, newIds = new Set()) {
             const container = document.getElementById('notifications-container');
             if (notifications.length === 0) {
                 container.innerHTML = '<div class="no-notifications">No active notifications</div>';
                 return;
             }
             container.innerHTML = notifications.map(notification => `
-                <div class="notification" id="notification-${notification.id}">
+                <div class="notification${newIds.has(notification.id) ? ' notification-new' : ''}"
+                     id="notification-${notification.id}">
                     <div class="notification-header">
                         <div class="notification-title">${notification.title || 'Notification'}</div>
                         <div class="notification-time">${formatTime(notification.timestamp)}</div>
@@ -515,10 +600,10 @@
 
         function updateTitleWithCount() {
             document.title = unreadCount > 0 ? `(${unreadCount}) Web Notifications` : 'Web Notifications';
-            updateFavicon(unreadCount);
+            updateFavicon(unreadCount, 0);
         }
 
-        function updateFavicon(count) {
+        function updateFavicon(count, tilt = 0) {
             const canvas = document.createElement('canvas');
             canvas.width = 32;
             canvas.height = 32;
@@ -530,13 +615,17 @@
             ctx.arc(16, 16, 16, 0, 2 * Math.PI);
             ctx.fill();
 
-            // White bell — top knob
+            // Draw bell with optional tilt around its base centre
+            ctx.save();
+            ctx.translate(16, 22);
+            ctx.rotate(tilt);
+            ctx.translate(-16, -22);
+
             ctx.fillStyle = 'white';
             ctx.beginPath();
             ctx.ellipse(16, 7.5, 2.5, 1.5, 0, 0, 2 * Math.PI);
             ctx.fill();
 
-            // White bell — body
             ctx.beginPath();
             ctx.moveTo(9, 21);
             ctx.lineTo(9.8, 19.5);
@@ -550,19 +639,18 @@
             ctx.closePath();
             ctx.fill();
 
-            // White bell — clapper
             ctx.beginPath();
             ctx.ellipse(16, 22.5, 2.5, 2, 0, 0, 2 * Math.PI);
             ctx.fill();
 
+            ctx.restore();
+
             if (count > 0) {
-                // Red badge circle
                 ctx.fillStyle = '#f44336';
                 ctx.beginPath();
                 ctx.arc(23, 9, 7, 0, 2 * Math.PI);
                 ctx.fill();
 
-                // Count text
                 ctx.fillStyle = 'white';
                 ctx.font = 'bold 8px Arial';
                 ctx.textAlign = 'center';
@@ -572,6 +660,17 @@
 
             const link = document.querySelector("link[rel~='icon']");
             if (link) link.href = canvas.toDataURL('image/png');
+        }
+
+        function animateFaviconBell() {
+            const tilts = [0, 0.35, -0.35, 0.28, -0.28, 0.18, -0.18, 0.1, -0.1, 0];
+            let i = 0;
+            const tick = () => {
+                updateFavicon(unreadCount, tilts[i]);
+                i++;
+                if (i < tilts.length) setTimeout(tick, 60);
+            };
+            tick();
         }
 
         async function dismissNotification(id) {
