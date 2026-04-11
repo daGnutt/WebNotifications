@@ -176,29 +176,12 @@
         .btn-primary { background-color: #4CAF50; color: white; }
         .btn-secondary { background-color: var(--border-color); color: var(--text-color); }
         .btn-danger { background-color: #f44336; color: white; }
-        .filter-bar {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            margin-bottom: 16px;
-            font-size: 13px;
-            color: var(--header-color);
-        }
-        .filter-bar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
     <h1>Web Notifications</h1>
 
     <div id="notifications-container"></div>
-
-    <!-- Filter bar (only shown when logged in) -->
-    <div class="filter-bar" id="filter-bar" style="display:none">
-        <label>
-            <input type="checkbox" id="filter-mine" checked onchange="fetchNotifications()" />
-            Show only my notifications
-        </label>
-    </div>
 
     <!-- User bar -->
     <div class="user-bar" id="user-bar">
@@ -340,7 +323,6 @@
 
             document.getElementById('login-form').style.display = 'none';
             document.getElementById('user-info').style.display = 'flex';
-            document.getElementById('filter-bar').style.display = 'flex';
             document.getElementById('user-display-name').textContent = user.username;
             document.getElementById('user-id-label').textContent = `ID: ${user.userId}`;
             document.getElementById('user-avatar').textContent = user.username.charAt(0).toUpperCase();
@@ -400,7 +382,6 @@
             document.getElementById('login-form').style.display = 'flex';
             document.getElementById('username-input').value = '';
             document.getElementById('user-info').style.display = 'none';
-            document.getElementById('filter-bar').style.display = 'none';
             fetchNotifications();
         }
 
@@ -475,9 +456,7 @@
         // ── Notifications ────────────────────────────────────────────────────
         async function fetchNotifications() {
             try {
-                const filterMine = document.getElementById('filter-mine')?.checked;
-                const userId = (currentUser && filterMine) ? currentUser.userId : null;
-                const url = userId ? `/api/notifications?userId=${userId}` : '/api/notifications';
+                const url = currentUser ? `/api/notifications?userId=${currentUser.userId}` : '/api/notifications';
 
                 const response = await fetch(url);
                 const notifications = await response.json();
