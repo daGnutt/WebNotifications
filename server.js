@@ -3,6 +3,7 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
+const crypto = require('crypto');
 const webpush = require('web-push');
 const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
@@ -45,10 +46,13 @@ function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         username TEXT UNIQUE,
+        password_hash TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         last_active TEXT
       )
     `);
+    // Migrate existing databases that lack the password_hash column
+    db.run(`ALTER TABLE users ADD COLUMN password_hash TEXT`, () => {});
     
     // Create notifications table with user_id
     db.run(`
@@ -103,17 +107,43 @@ function addNotification(notification, userId, callback) {
   stmt.finalize();
 }
 
-// User management functions
-function createUser(username, callback) {
-  const userId = uuidv4();
-  const stmt = db.prepare(
-    'INSERT INTO users (user_id, username, last_active) VALUES (?, ?, ?)'
-  );
-  stmt.run([userId, username, new Date().toISOString()], function(err) {
-    if (err) console.error('Error creating user:', err.message);
-    if (callback) callback(err, err ? null : { userId, username });
+// Password hashing helpers (using built-in crypto — no extra deps)
+function hashPassword(password) {
+  return new Promise((resolve, reject) => {
+    const salt = crypto.randomBytes(16).toString('hex');
+    crypto.scrypt(password, salt, 64, (err, key) => {
+      if (err) return reject(err);
+      resolve(`${salt}:${key.toString('hex')}`);
+    });
   });
-  stmt.finalize();
+}
+
+function verifyPassword(password, hash) {
+  return new Promise((resolve, reject) => {
+    const [salt, key] = hash.split(':');
+    crypto.scrypt(password, salt, 64, (err, derived) => {
+      if (err) return reject(err);
+      resolve(crypto.timingSafeEqual(Buffer.from(derived.toString('hex')), Buffer.from(key)));
+    });
+  });
+}
+
+// User management functions
+async function createUser(username, password, callback) {
+  try {
+    const userId = uuidv4();
+    const passwordHash = await hashPassword(password);
+    const stmt = db.prepare(
+      'INSERT INTO users (user_id, username, password_hash, last_active) VALUES (?, ?, ?, ?)'
+    );
+    stmt.run([userId, username, passwordHash, new Date().toISOString()], function(err) {
+      if (err) console.error('Error creating user:', err.message);
+      if (callback) callback(err, err ? null : { userId, username });
+    });
+    stmt.finalize();
+  } catch (err) {
+    if (callback) callback(err, null);
+  }
 }
 
 function getUserById(userId, callback) {
@@ -133,23 +163,6 @@ function updateUserLastActive(userId, callback) {
 
 function getAllUsers(callback) {
   db.all('SELECT * FROM users', callback);
-}
-
-function addNotification(notification, callback) {
-  const stmt = db.prepare(
-    'INSERT INTO notifications (id, title, body, timestamp, data) VALUES (?, ?, ?, ?, ?)'
-  );
-  stmt.run([
-    notification.id,
-    notification.title,
-    notification.body,
-    notification.timestamp,
-    JSON.stringify(notification)
-  ], function(err) {
-    if (err) console.error('Error adding notification:', err.message);
-    if (callback) callback(err, this);
-  });
-  stmt.finalize();
 }
 
 function deleteNotification(id, callback) {
@@ -191,27 +204,28 @@ function deletePushSubscription(endpoint, callback) {
 
 // API Endpoint to receive notifications from Android
 app.post('/api/notifications', async (req, res) => {
-  const notification = req.body;
-  
+  const { userId, ...notificationData } = req.body;
+  const notification = notificationData;
+
   // Add timestamp if not provided
   if (!notification.timestamp) {
     notification.timestamp = new Date().toISOString();
   }
-  
+
   // Add unique ID
   notification.id = Date.now().toString();
-  
+
   // Store notification in database
-  addNotification(notification, (err) => {
+  addNotification(notification, userId, (err) => {
     if (err) {
       console.error('Error storing notification:', err);
       return res.status(500).json({ success: false, error: 'Failed to store notification' });
     }
-    
+
     console.log('Received notification:', notification);
-    
-    // Send push notifications to all subscribers
-    sendPushNotifications(notification)
+
+    // Send push notifications to all subscribers (or user-specific ones)
+    sendPushNotifications(notification, userId)
       .then(() => {
         res.status(200).json({ success: true, id: notification.id });
       })
@@ -271,7 +285,8 @@ app.get('/api/vapid-public-key', (req, res) => {
 
 // API Endpoint to get all notifications
 app.get('/api/notifications', (req, res) => {
-  getAllNotifications((err, rows) => {
+  const userId = req.query.userId || null;
+  getAllNotifications(userId, (err, rows) => {
     if (err) {
       console.error('Error fetching notifications:', err);
       return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
@@ -309,8 +324,9 @@ app.delete('/api/notifications/:id', (req, res) => {
 
 // API Endpoint to store push subscription
 app.post('/api/subscribe', (req, res) => {
-  const subscription = req.body;
-  addPushSubscription(subscription, (err) => {
+  const { userId, ...subscriptionData } = req.body;
+  const subscription = subscriptionData;
+  addPushSubscription(subscription, userId || null, (err) => {
     if (err) {
       console.error('Error storing push subscription:', err);
       return res.status(500).json({ success: false, error: 'Failed to store subscription' });
@@ -322,30 +338,30 @@ app.post('/api/subscribe', (req, res) => {
 
 // API Endpoint to send push notification (for testing)
 app.post('/api/send-push', async (req, res) => {
-  const { title, body } = req.body;
-  
-  try {
-    // In a real implementation, you would use the web-push library here
-    // to send push notifications to all subscribers
-    console.log('Push notification would be sent to', pushSubscriptions.length, 'subscribers');
-    console.log('Title:', title, 'Body:', body);
-    
-    // For now, we'll just add it to our regular notifications
-    // so it appears when the user opens the page
-    const notification = {
-      title: title,
-      body: body,
-      timestamp: new Date().toISOString(),
-      id: Date.now().toString()
-    };
-    
-    notifications.push(notification);
-    
-    res.status(200).json({ success: true, id: notification.id });
-  } catch (error) {
-    console.error('Error sending push notification:', error);
-    res.status(500).json({ success: false, error: error.message });
-  }
+  const { title, body, userId } = req.body;
+
+  const notification = {
+    title,
+    body,
+    timestamp: new Date().toISOString(),
+    id: Date.now().toString()
+  };
+
+  addNotification(notification, userId || null, (err) => {
+    if (err) {
+      console.error('Error storing notification:', err);
+      return res.status(500).json({ success: false, error: 'Failed to store notification' });
+    }
+
+    sendPushNotifications(notification, userId || null)
+      .then(() => {
+        res.status(200).json({ success: true, id: notification.id });
+      })
+      .catch((error) => {
+        console.error('Error sending push notifications:', error);
+        res.status(500).json({ success: false, error: error.message });
+      });
+  });
 });
 
 // API Endpoint to handle notification actions
@@ -353,17 +369,119 @@ app.post('/api/notifications/:id/actions', (req, res) => {
   const id = req.params.id;
   const action = req.body.action;
   const response = req.body.response;
-  
+
   console.log(`Action '${action}' performed on notification ${id} with response:`, response);
-  
-  // Find and update the notification
-  const notificationIndex = notifications.findIndex(n => n.id === id);
-  if (notificationIndex !== -1) {
-    notifications[notificationIndex].actionTaken = action;
-    notifications[notificationIndex].actionResponse = response;
+
+  db.get('SELECT * FROM notifications WHERE id = ?', [id], (err, row) => {
+    if (err || !row) {
+      return res.status(404).json({ success: false, error: 'Notification not found' });
+    }
+
+    let data = {};
+    try { data = JSON.parse(row.data); } catch (e) {}
+    data.actionTaken = action;
+    data.actionResponse = response;
+
+    db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
+      if (updateErr) console.error('Error updating notification action:', updateErr.message);
+      res.status(200).json({ success: true });
+    });
+  });
+});
+
+// User management API endpoints
+
+// Unified auth: register (new user) or login (existing user)
+app.post('/api/auth', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'username and password are required' });
   }
-  
-  res.status(200).json({ success: true });
+
+  getUserByUsername(username, async (err, user) => {
+    if (err) return res.status(500).json({ success: false, error: 'Database error' });
+
+    if (!user) {
+      // New user — register
+      createUser(username, password, (createErr, newUser) => {
+        if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
+        res.status(201).json({ success: true, created: true, user: newUser });
+      });
+    } else {
+      // Existing user — verify password
+      if (!user.password_hash) {
+        // Legacy account with no password: set the password now
+        try {
+          const hash = await new Promise((resolve, reject) => {
+            const salt = crypto.randomBytes(16).toString('hex');
+            crypto.scrypt(password, salt, 64, (e, key) => e ? reject(e) : resolve(`${salt}:${key.toString('hex')}`));
+          });
+          db.run('UPDATE users SET password_hash = ? WHERE user_id = ?', [hash, user.user_id], () => {});
+        } catch (e) { /* non-fatal */ }
+        updateUserLastActive(user.user_id, () => {});
+        return res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username } });
+      }
+
+      const valid = await verifyPassword(password, user.password_hash).catch(() => false);
+      if (!valid) return res.status(401).json({ success: false, error: 'Incorrect password' });
+
+      updateUserLastActive(user.user_id, () => {});
+      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username } });
+    }
+  });
+});
+
+app.post('/api/users', async (req, res) => {
+  const { username, password } = req.body;
+  if (!username || !password) {
+    return res.status(400).json({ success: false, error: 'username and password are required' });
+  }
+  createUser(username, password, (err, user) => {
+    if (err) {
+      if (err.message && err.message.includes('UNIQUE')) {
+        return res.status(409).json({ success: false, error: 'Username already exists' });
+      }
+      return res.status(500).json({ success: false, error: 'Failed to create user' });
+    }
+    res.status(201).json({ success: true, user });
+  });
+});
+
+app.get('/api/users', (req, res) => {
+  getAllUsers((err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch users' });
+    res.status(200).json(rows.map(({ password_hash, ...u }) => u));
+  });
+});
+
+app.get('/api/users/by-username/:username', (req, res) => {
+  getUserByUsername(req.params.username, (err, user) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch user' });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    res.status(200).json(user);
+  });
+});
+
+app.get('/api/users/:userId', (req, res) => {
+  getUserById(req.params.userId, (err, user) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch user' });
+    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
+    updateUserLastActive(user.user_id, () => {});
+    const { password_hash, ...safeUser } = user;
+    res.status(200).json(safeUser);
+  });
+});
+
+app.get('/api/users/:userId/notifications', (req, res) => {
+  getAllNotifications(req.params.userId, (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
+    const notifications = rows.map(row => {
+      try { return JSON.parse(row.data); } catch (e) {
+        return { id: row.id, title: row.title, body: row.body, timestamp: row.timestamp };
+      }
+    });
+    res.status(200).json(notifications);
+  });
 });
 
 // Serve HTML page

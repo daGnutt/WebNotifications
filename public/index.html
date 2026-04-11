@@ -103,205 +103,274 @@
             color: var(--header-color);
             margin-top: 50px;
         }
+        .user-bar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 10px 15px;
+            margin-bottom: 20px;
+        }
+        .user-bar-login {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-grow: 1;
+        }
+        .user-bar-login input {
+            flex-grow: 1;
+            padding: 7px 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: var(--bg-color);
+            color: var(--text-color);
+            font-size: 14px;
+        }
+        .user-bar-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .user-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+            font-size: 14px;
+            flex-shrink: 0;
+        }
+        .user-name {
+            font-weight: bold;
+            font-size: 14px;
+        }
+        .user-label {
+            font-size: 12px;
+            color: var(--header-color);
+        }
+        .btn {
+            padding: 7px 14px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            white-space: nowrap;
+        }
+        .btn-primary { background-color: #4CAF50; color: white; }
+        .btn-secondary { background-color: var(--border-color); color: var(--text-color); }
+        .btn-danger { background-color: #f44336; color: white; }
+        .filter-bar {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 16px;
+            font-size: 13px;
+            color: var(--header-color);
+        }
+        .filter-bar label { display: flex; align-items: center; gap: 4px; cursor: pointer; }
     </style>
 </head>
 <body>
     <h1>Web Notifications</h1>
+
+    <!-- User bar -->
+    <div class="user-bar" id="user-bar">
+        <div class="user-bar-login" id="login-form">
+            <input type="text" id="username-input" placeholder="Username" maxlength="64"
+                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
+            <input type="password" id="password-input" placeholder="Password" maxlength="128"
+                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
+            <button class="btn btn-primary" onclick="loginOrRegister()">Sign In / Register</button>
+        </div>
+        <div class="user-bar-info" id="user-info" style="display:none">
+            <div class="user-avatar" id="user-avatar"></div>
+            <div>
+                <div class="user-name" id="user-display-name"></div>
+                <div class="user-label" id="user-id-label" title="Click to copy" style="cursor:pointer" onclick="copyUserId()"></div>
+            </div>
+            <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
+        </div>
+    </div>
+
+    <!-- Filter bar (only shown when logged in) -->
+    <div class="filter-bar" id="filter-bar" style="display:none">
+        <label>
+            <input type="checkbox" id="filter-mine" checked onchange="fetchNotifications()" />
+            Show only my notifications
+        </label>
+    </div>
+
     <div id="notifications-container"></div>
     
     <script>
-        // Function to apply theme based on system preference
-        function applyTheme() {
-            const isDarkMode = window.matchMedia('(prefers-color-scheme: dark)').matches;
-            document.body.classList.toggle('dark-mode', isDarkMode);
-        }
-        
-        // Listen for system theme changes
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', (e) => {
+        // ── Theme ────────────────────────────────────────────────────────────
+        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
             document.body.classList.toggle('dark-mode', e.matches);
         });
-        
-        // Apply theme on page load
-        applyTheme();
-        
-        // Register service worker and request notification permission
-        registerServiceWorker();
-        requestNotificationPermission();
-        
-        // Track which notifications have been shown as browser notifications
+        document.body.classList.toggle('dark-mode', window.matchMedia('(prefers-color-scheme: dark)').matches);
+
+        // ── State ────────────────────────────────────────────────────────────
+        let currentUser = null;  // { userId, username }
         let shownNotificationIds = new Set();
-        
-        // Track unread notification count for title
         let unreadCount = 0;
-        
-        // Register service worker for push notifications
+
+        // ── User management ──────────────────────────────────────────────────
+        async function loginOrRegister() {
+            const username = document.getElementById('username-input').value.trim();
+            const password = document.getElementById('password-input').value;
+            if (!username) return alert('Please enter a username.');
+            if (!password) return alert('Please enter a password.');
+
+            const res = await fetch('/api/auth', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username, password })
+            });
+
+            if (res.status === 401) return alert('Incorrect password.');
+            if (!res.ok) { const d = await res.json(); return alert(d.error || 'Sign-in failed.'); }
+
+            const { user } = await res.json();
+            document.getElementById('password-input').value = '';
+            setCurrentUser(user);
+        }
+
+        function setCurrentUser(user) {
+            currentUser = user;
+            localStorage.setItem('currentUser', JSON.stringify(user));
+
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('user-info').style.display = 'flex';
+            document.getElementById('filter-bar').style.display = 'flex';
+            document.getElementById('user-display-name').textContent = user.username;
+            document.getElementById('user-id-label').textContent = `ID: ${user.userId}`;
+            document.getElementById('user-avatar').textContent = user.username.charAt(0).toUpperCase();
+
+            subscribeToPushNotifications();
+            fetchNotifications();
+        }
+
+        function copyUserId() {
+            if (!currentUser) return;
+            navigator.clipboard.writeText(currentUser.userId).then(() => {
+                const label = document.getElementById('user-id-label');
+                const original = label.textContent;
+                label.textContent = 'Copied!';
+                setTimeout(() => label.textContent = original, 1500);
+            });
+        }
+
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+
+            document.getElementById('login-form').style.display = 'flex';
+            document.getElementById('username-input').value = '';
+            document.getElementById('user-info').style.display = 'none';
+            document.getElementById('filter-bar').style.display = 'none';
+            fetchNotifications();
+        }
+
+        function restoreSession() {
+            const saved = localStorage.getItem('currentUser');
+            if (saved) {
+                try {
+                    const user = JSON.parse(saved);
+                    // Verify user still exists on the server
+                    fetch(`/api/users/${user.userId}`)
+                        .then(r => r.ok ? setCurrentUser(user) : logout())
+                        .catch(() => logout());
+                } catch (e) { logout(); }
+            }
+        }
+
+        // ── Push notifications ───────────────────────────────────────────────
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
-                window.addEventListener('load', function() {
+                window.addEventListener('load', () => {
                     navigator.serviceWorker.register('/service-worker.js')
-                        .then(function(registration) {
-                            console.log('ServiceWorker registration successful');
-                        })
-                        .catch(function(err) {
-                            console.log('ServiceWorker registration failed: ', err);
-                        });
+                        .then(() => console.log('ServiceWorker registration successful'))
+                        .catch(err => console.log('ServiceWorker registration failed:', err));
                 });
             }
         }
-        
-        // Request notification permission from the user
+
         function requestNotificationPermission() {
-            if (!('Notification' in window)) {
-                console.log('This browser does not support desktop notifications');
-                return;
-            }
-            
-            if (Notification.permission === 'granted') {
-                console.log('Notification permission already granted');
-                subscribeToPushNotifications();
-                return;
-            }
-            
-            Notification.requestPermission().then((permission) => {
-                if (permission === 'granted') {
-                    console.log('Notification permission granted');
-                    subscribeToPushNotifications();
-                } else {
-                    console.log('Notification permission denied');
-                }
+            if (!('Notification' in window)) return;
+            if (Notification.permission === 'granted') return;
+            Notification.requestPermission().then(permission => {
+                if (permission === 'granted') console.log('Notification permission granted');
             });
         }
-        
-        // Subscribe to push notifications
+
         async function subscribeToPushNotifications() {
             try {
-                // Fetch VAPID public key from server
                 const vapidResponse = await fetch('/api/vapid-public-key');
                 const { publicKey } = await vapidResponse.json();
-                
+
                 const registration = await navigator.serviceWorker.ready;
                 const subscription = await registration.pushManager.subscribe({
                     userVisibleOnly: true,
                     applicationServerKey: urlBase64ToUint8Array(publicKey)
                 });
-                
-                console.log('Push subscription established:', subscription);
-                await sendSubscriptionToServer(subscription);
-                
+
+                const payload = {
+                    ...JSON.parse(JSON.stringify(subscription)),
+                    userId: currentUser ? currentUser.userId : null
+                };
+
+                await fetch('/api/subscribe', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                console.log('Push subscription stored for user:', currentUser?.username);
             } catch (error) {
                 console.error('Error subscribing to push notifications:', error);
             }
         }
-        
-        // Send subscription to server
-        async function sendSubscriptionToServer(subscription) {
-            try {
-                const response = await fetch('/api/subscribe', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/json'
-                    },
-                    body: JSON.stringify(subscription)
-                });
-                
-                if (response.ok) {
-                    console.log('Subscription successfully sent to server');
-                } else {
-                    console.error('Failed to send subscription to server');
-                }
-            } catch (error) {
-                console.error('Error sending subscription to server:', error);
-            }
-        }
-        
-        // Helper function to convert VAPID key
+
         function urlBase64ToUint8Array(base64String) {
             const padding = '='.repeat((4 - base64String.length % 4) % 4);
-            const base64 = (base64String + padding)
-                .replace(/-/g, '+')
-                .replace(/_/g, '/');
-            
+            const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
             const rawData = window.atob(base64);
             const outputArray = new Uint8Array(rawData.length);
-            
-            for (let i = 0; i < rawData.length; ++i) {
-                outputArray[i] = rawData.charCodeAt(i);
-            }
-            
+            for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
             return outputArray;
         }
-        
-        // Show browser notification
-        function showBrowserNotification(notification) {
-            if (!('Notification' in window) || Notification.permission !== 'granted') {
-                return;
-            }
-            
-            // Don't show browser notification if window is focused
-            if (document.hasFocus()) {
-                return;
-            }
-            
-            const options = {
-                body: notification.body || '',
-                icon: '/icon.png',
-                data: {
-                    notificationId: notification.id
-                }
-            };
-            
-            const browserNotification = new Notification(notification.title || 'Notification', options);
-            
-            // Close the browser notification when clicked
-            browserNotification.onclick = function(event) {
-                event.preventDefault();
-                window.focus();
-                browserNotification.close();
-            };
-        }
-        
-        // Function to update the page title with unread count
-        function updateTitleWithCount() {
-            if (unreadCount > 0) {
-                document.title = `Web Notifications (${unreadCount})`;
-            } else {
-                document.title = 'Web Notifications';
-            }
-        }
-        
-        // Fetch and display notifications
+
+        // ── Notifications ────────────────────────────────────────────────────
         async function fetchNotifications() {
             try {
-                const response = await fetch('/api/notifications');
+                const filterMine = document.getElementById('filter-mine')?.checked;
+                const userId = (currentUser && filterMine) ? currentUser.userId : null;
+                const url = userId ? `/api/notifications?userId=${userId}` : '/api/notifications';
+
+                const response = await fetch(url);
                 const notifications = await response.json();
                 displayNotifications(notifications);
-                
-                // Update unread count and title
+
                 unreadCount = notifications.length;
                 updateTitleWithCount();
-                
-                // Only show browser notifications for new notifications if this is the first time seeing them
-                // and we want to avoid duplicates when multiple tabs are open
-                notifications.forEach(notification => {
-                    if (!shownNotificationIds.has(notification.id)) {
-                        shownNotificationIds.add(notification.id);
-                        // Browser notifications are now handled by service worker only when no pages are open
-                        // so we don't need to show them here
-                    }
-                });
+
+                notifications.forEach(n => shownNotificationIds.add(n.id));
             } catch (error) {
                 console.error('Error fetching notifications:', error);
             }
         }
-        
+
         function displayNotifications(notifications) {
             const container = document.getElementById('notifications-container');
-            
             if (notifications.length === 0) {
                 container.innerHTML = '<div class="no-notifications">No active notifications</div>';
                 return;
             }
-            
             container.innerHTML = notifications.map(notification => `
                 <div class="notification" id="notification-${notification.id}">
                     <div class="notification-header">
@@ -314,62 +383,63 @@
                 </div>
             `).join('');
         }
-        
+
         function renderActions(notification) {
             if (!notification.actions || notification.actions.length === 0) return '';
-            
             return `
                 <div class="notification-actions">
                     ${notification.actions.map(action => `
-                        ${action.type === 'reply' ? 
-                            `<input type="text" class="reply-input" id="reply-${notification.id}" placeholder="Reply...">
-                             <button class="action-button" onclick="handleAction('${notification.id}', '${action.type}', document.getElementById('reply-${notification.id}').value)">Send</button>`
-                            : 
-                            `<button class="action-button" onclick="handleAction('${notification.id}', '${action.type}')">${action.title}</button>`}
+                        ${action.type === 'reply'
+                            ? `<input type="text" class="reply-input" id="reply-${notification.id}" placeholder="Reply...">
+                               <button class="action-button" onclick="handleAction('${notification.id}', '${action.type}', document.getElementById('reply-${notification.id}').value)">Send</button>`
+                            : `<button class="action-button" onclick="handleAction('${notification.id}', '${action.type}')">${action.title}</button>`}
                     `).join('')}
                 </div>
             `;
         }
-        
+
         function formatTime(timestamp) {
-            const date = new Date(timestamp);
-            return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+            return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         }
-        
+
+        function updateTitleWithCount() {
+            document.title = unreadCount > 0 ? `Web Notifications (${unreadCount})` : 'Web Notifications';
+        }
+
         async function dismissNotification(id) {
             try {
                 await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
                 document.getElementById(`notification-${id}`).remove();
-                
-                // Decrement unread count and update title
                 unreadCount--;
                 updateTitleWithCount();
             } catch (error) {
                 console.error('Error dismissing notification:', error);
             }
         }
-        
+
         async function handleAction(notificationId, actionType, response) {
             try {
                 await fetch(`/api/notifications/${notificationId}/actions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: actionType, response: response })
+                    body: JSON.stringify({ action: actionType, response })
                 });
-                
-                // Remove the notification after action is handled
                 document.getElementById(`notification-${notificationId}`).remove();
-                
-                // Decrement unread count and update title
                 unreadCount--;
                 updateTitleWithCount();
             } catch (error) {
                 console.error('Error handling action:', error);
             }
         }
-        
-        // Fetch notifications every 5 seconds
-        fetchNotifications();
+
+        // ── Bootstrap ────────────────────────────────────────────────────────
+        registerServiceWorker();
+        requestNotificationPermission();
+        restoreSession();
+
+        // If not logged in, still show all notifications
+        if (!localStorage.getItem('currentUser')) fetchNotifications();
+
         setInterval(fetchNotifications, 5000);
     </script>
 </body>
