@@ -131,6 +131,9 @@
         // Track which notifications have been shown as browser notifications
         let shownNotificationIds = new Set();
         
+        // Track unread notification count for title
+        let unreadCount = 0;
+        
         // Register service worker for push notifications
         function registerServiceWorker() {
             if ('serviceWorker' in navigator) {
@@ -257,12 +260,25 @@
             };
         }
         
+        // Function to update the page title with unread count
+        function updateTitleWithCount() {
+            if (unreadCount > 0) {
+                document.title = `Web Notifications (${unreadCount})`;
+            } else {
+                document.title = 'Web Notifications';
+            }
+        }
+        
         // Fetch and display notifications
         async function fetchNotifications() {
             try {
                 const response = await fetch('/api/notifications');
                 const notifications = await response.json();
                 displayNotifications(notifications);
+                
+                // Update unread count and title
+                unreadCount = notifications.length;
+                updateTitleWithCount();
                 
                 // Only show browser notifications for new notifications if this is the first time seeing them
                 // and we want to avoid duplicates when multiple tabs are open
@@ -324,6 +340,10 @@
             try {
                 await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
                 document.getElementById(`notification-${id}`).remove();
+                
+                // Decrement unread count and update title
+                unreadCount--;
+                updateTitleWithCount();
             } catch (error) {
                 console.error('Error dismissing notification:', error);
             }
@@ -339,6 +359,10 @@
                 
                 // Remove the notification after action is handled
                 document.getElementById(`notification-${notificationId}`).remove();
+                
+                // Decrement unread count and update title
+                unreadCount--;
+                updateTitleWithCount();
             } catch (error) {
                 console.error('Error handling action:', error);
             }
