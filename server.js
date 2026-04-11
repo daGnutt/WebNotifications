@@ -610,6 +610,28 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
+// Prune users inactive for 30+ days along with all their associated data
+function pruneInactiveUsers() {
+  const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString();
+  db.all('SELECT user_id FROM users WHERE last_active < ?', [cutoff], (err, rows) => {
+    if (err || !rows.length) return;
+    const ids = rows.map(r => r.user_id);
+    const placeholders = ids.map(() => '?').join(',');
+    db.serialize(() => {
+      db.run(`DELETE FROM reset_codes       WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM push_subscriptions WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM notifications      WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM users              WHERE user_id IN (${placeholders})`, ids, (delErr) => {
+        if (!delErr) console.log(`Pruned ${ids.length} inactive user(s) (last active before ${cutoff})`);
+      });
+    });
+  });
+}
+
+// Run once at startup, then every 24 hours
+pruneInactiveUsers();
+setInterval(pruneInactiveUsers, 24 * 60 * 60 * 1000);
+
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
