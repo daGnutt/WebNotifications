@@ -121,25 +121,21 @@
                 glowPulse 0.7s ease 0.4s 3;
         }
 
-        /* ── Heads-up banner ── */
-        .heads-up-banner {
-            border: 1px solid #4CAF50;
-            border-radius: 8px;
-            padding: 10px 15px;
-            margin-bottom: 12px;
-            font-size: 13px;
-            color: #4CAF50;
-            overflow: hidden;
-            position: relative;
-            background-color: var(--card-bg);
+        /* ── Top indicator bar (always present, never shifts layout) ── */
+        .notification-indicator {
+            position: fixed;
+            top: 0; left: 0; right: 0;
+            height: 4px;
+            background-color: transparent;
+            z-index: 300;
+            pointer-events: none;
         }
-        .heads-up-progress {
-            position: absolute;
-            bottom: 0; left: 0;
-            height: 3px;
-            background-color: #4CAF50;
-            width: 100%;
-            transition: width var(--heads-up-ms, 2000ms) linear;
+        @keyframes breatheGreen {
+            0%, 100% { background-color: rgba(76, 175, 80, 0.2); }
+            50%       { background-color: rgba(76, 175, 80, 1); }
+        }
+        .notification-indicator.incoming {
+            animation: breatheGreen 1s ease-in-out infinite;
         }
         .user-bar {
             display: flex;
@@ -217,10 +213,9 @@
 <body>
     <h1>Web Notifications</h1>
 
-    <div id="heads-up-banner" class="heads-up-banner" style="display:none">
-        <span id="heads-up-text"></span>
-        <div class="heads-up-progress" id="heads-up-progress"></div>
-    </div>
+    <div class="notification-indicator" id="notification-indicator"></div>
+
+    <h1>Web Notifications</h1>
     <div id="notifications-container"></div>
 
     <!-- User bar -->
@@ -512,7 +507,7 @@
                     // Stage the incoming notifications and warn the user first
                     pendingNotifications = { notifications, newIds: new Set(newOnes.map(n => n.id)) };
                     animateFaviconBell();
-                    showHeadsUpBanner(newOnes.length);
+                    showHeadsUpBanner();
 
                     if (headsUpTimeout) clearTimeout(headsUpTimeout);
                     headsUpTimeout = setTimeout(() => {
@@ -543,21 +538,12 @@
             }
         }
 
-        function showHeadsUpBanner(count) {
-            const banner = document.getElementById('heads-up-banner');
-            const bar = document.getElementById('heads-up-progress');
-            document.getElementById('heads-up-text').textContent =
-                `🔔 ${count} new notification${count > 1 ? 's' : ''} arriving…`;
-            banner.style.setProperty('--heads-up-ms', `${HEADS_UP_MS}ms`);
-            bar.style.width = '100%';
-            banner.style.display = 'block';
-            // Trigger the shrink transition on the next frame
-            requestAnimationFrame(() => requestAnimationFrame(() => { bar.style.width = '0%'; }));
+        function showHeadsUpBanner() {
+            document.getElementById('notification-indicator').classList.add('incoming');
         }
 
         function hideHeadsUpBanner() {
-            document.getElementById('heads-up-banner').style.display = 'none';
-            document.getElementById('heads-up-progress').style.width = '100%';
+            document.getElementById('notification-indicator').classList.remove('incoming');
         }
 
         function displayNotifications(notifications, newIds = new Set()) {
