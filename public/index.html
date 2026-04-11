@@ -515,6 +515,63 @@
 
         function updateTitleWithCount() {
             document.title = unreadCount > 0 ? `(${unreadCount}) Web Notifications` : 'Web Notifications';
+            updateFavicon(unreadCount);
+        }
+
+        function updateFavicon(count) {
+            const canvas = document.createElement('canvas');
+            canvas.width = 32;
+            canvas.height = 32;
+            const ctx = canvas.getContext('2d');
+
+            // Green circle background
+            ctx.fillStyle = '#4CAF50';
+            ctx.beginPath();
+            ctx.arc(16, 16, 16, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // White bell — top knob
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.ellipse(16, 7.5, 2.5, 1.5, 0, 0, 2 * Math.PI);
+            ctx.fill();
+
+            // White bell — body
+            ctx.beginPath();
+            ctx.moveTo(9, 21);
+            ctx.lineTo(9.8, 19.5);
+            ctx.lineTo(10, 19);
+            ctx.lineTo(10, 13.5);
+            ctx.bezierCurveTo(10, 9.9, 12.7, 7, 16, 7);
+            ctx.bezierCurveTo(19.3, 7, 22, 9.9, 22, 13.5);
+            ctx.lineTo(22, 19);
+            ctx.lineTo(22.2, 19.5);
+            ctx.lineTo(23, 21);
+            ctx.closePath();
+            ctx.fill();
+
+            // White bell — clapper
+            ctx.beginPath();
+            ctx.ellipse(16, 22.5, 2.5, 2, 0, 0, 2 * Math.PI);
+            ctx.fill();
+
+            if (count > 0) {
+                // Red badge circle
+                ctx.fillStyle = '#f44336';
+                ctx.beginPath();
+                ctx.arc(23, 9, 7, 0, 2 * Math.PI);
+                ctx.fill();
+
+                // Count text
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 8px Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(count > 9 ? '9+' : String(count), 23, 9);
+            }
+
+            const link = document.querySelector("link[rel~='icon']");
+            if (link) link.href = canvas.toDataURL('image/png');
         }
 
         async function dismissNotification(id) {
@@ -546,6 +603,7 @@
         // ── Bootstrap ────────────────────────────────────────────────────────
         registerServiceWorker();
         requestNotificationPermission();
+        updateFavicon(0);
         restoreSession();
 
         // If not logged in, still show all notifications
