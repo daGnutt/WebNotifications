@@ -234,6 +234,11 @@
                 return;
             }
             
+            // Don't show browser notification if window is focused
+            if (document.hasFocus()) {
+                return;
+            }
+            
             const options = {
                 body: notification.body || '',
                 icon: '/icon.png',
@@ -259,11 +264,13 @@
                 const notifications = await response.json();
                 displayNotifications(notifications);
                 
-                // Show browser notifications for new notifications that haven't been shown yet
+                // Only show browser notifications for new notifications if this is the first time seeing them
+                // and we want to avoid duplicates when multiple tabs are open
                 notifications.forEach(notification => {
                     if (!shownNotificationIds.has(notification.id)) {
-                        showBrowserNotification(notification);
                         shownNotificationIds.add(notification.id);
+                        // Browser notifications are now handled by service worker only when no pages are open
+                        // so we don't need to show them here
                     }
                 });
             } catch (error) {

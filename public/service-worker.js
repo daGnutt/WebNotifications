@@ -28,13 +28,22 @@ self.addEventListener('push', (event) => {
   const data = event.data.json();
   
   event.waitUntil(
-    self.registration.showNotification(data.title, {
-      body: data.body,
-      icon: '/icon.png',
-      data: {
-        url: '/',
-        notificationId: data.id
+    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+      // Check if any client window is open (regardless of focus)
+      const hasOpenClient = clientList.length > 0;
+      
+      // Only show notification if no window is open at all
+      if (!hasOpenClient) {
+        return self.registration.showNotification(data.title, {
+          body: data.body,
+          icon: '/icon.png',
+          data: {
+            url: '/',
+            notificationId: data.id
+          }
+        });
       }
+      return Promise.resolve(); // Don't show any notification if any page is open
     })
   );
 });
