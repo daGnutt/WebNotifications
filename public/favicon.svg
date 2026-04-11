@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Green circle background -->
+  <circle cx="16" cy="16" r="16" fill="#4CAF50"/>
+  <!-- Bell top knob -->
+  <ellipse cx="16" cy="7.5" rx="2.5" ry="1.5" fill="white"/>
+  <!-- Bell body -->
+  <path d="M9 21 L9.8 19.5 L10 19 L10 13.5 C10 9.9 12.7 7 16 7 C19.3 7 22 9.9 22 13.5 L22 19 L22.2 19.5 L23 21 Z" fill="white"/>
+  <!-- Bell clapper -->
+  <ellipse cx="16" cy="22.5" rx="2.5" ry="2" fill="white"/>
+  <!-- Notification dot -->
+  <circle cx="23" cy="9" r="4" fill="#f44336"/>
+</svg>

@@ -1,9 +1,10 @@
 // Service Worker for Web Notifications
-const CACHE_NAME = 'web-notifications-v2';
+const CACHE_NAME = 'web-notifications-v3';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
-  '/manifest.json'
+  '/manifest.json',
+  '/favicon.svg'
 ];
 
 self.addEventListener('install', (event) => {
@@ -44,7 +45,7 @@ self.addEventListener('push', (event) => {
       if (!hasOpenClient) {
         return self.registration.showNotification(data.title, {
           body: data.body,
-          icon: '/icon.png',
+          icon: '/favicon.svg',
           data: {
             url: '/',
             notificationId: data.id
