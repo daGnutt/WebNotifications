@@ -203,8 +203,6 @@
         <div class="user-bar-login" id="login-form">
             <input type="text" id="username-input" placeholder="Username" maxlength="64"
                    onkeydown="if(event.key==='Enter') loginOrRegister()" />
-            <input type="email" id="email-input" placeholder="Email (optional, for reset)" maxlength="256"
-                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
             <input type="password" id="password-input" placeholder="Password" maxlength="128"
                    onkeydown="if(event.key==='Enter') loginOrRegister()" />
             <button class="btn btn-primary" onclick="loginOrRegister()">Sign In / Register</button>
@@ -233,6 +231,16 @@
             <div>
                 <div class="user-name" id="user-display-name"></div>
                 <div class="user-label" id="user-id-label" title="Click to copy" style="cursor:pointer" onclick="copyUserId()"></div>
+                <div class="user-label" id="user-email-row">
+                    <span id="user-email-display" style="cursor:pointer" onclick="showEmailEdit()" title="Click to edit email"></span>
+                    <span id="user-email-edit" style="display:none">
+                        <input type="email" id="user-email-input" maxlength="256" placeholder="your@email.com"
+                               style="font-size:12px;padding:2px 6px;border:1px solid var(--border-color);border-radius:3px;background:var(--bg-color);color:var(--text-color)"
+                               onkeydown="if(event.key==='Enter') saveEmail(); if(event.key==='Escape') hideEmailEdit()" />
+                        <button class="btn btn-primary" style="padding:2px 8px;font-size:12px" onclick="saveEmail()">Save</button>
+                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:12px" onclick="hideEmailEdit()">Cancel</button>
+                    </span>
+                </div>
             </div>
             <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
         </div>
@@ -256,14 +264,13 @@
         async function loginOrRegister() {
             const username = document.getElementById('username-input').value.trim();
             const password = document.getElementById('password-input').value;
-            const email    = document.getElementById('email-input').value.trim() || undefined;
             if (!username) return alert('Please enter a username.');
             if (!password) return alert('Please enter a password.');
 
             const res = await fetch('/api/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password, email })
+                body: JSON.stringify({ username, password })
             });
 
             if (res.status === 401) return alert('Incorrect password.');
@@ -271,7 +278,6 @@
 
             const { user } = await res.json();
             document.getElementById('password-input').value = '';
-            document.getElementById('email-input').value = '';
             setCurrentUser(user);
         }
 
@@ -336,9 +342,43 @@
             document.getElementById('user-display-name').textContent = user.username;
             document.getElementById('user-id-label').textContent = `ID: ${user.userId}`;
             document.getElementById('user-avatar').textContent = user.username.charAt(0).toUpperCase();
+            updateEmailDisplay(user.email || null);
 
             subscribeToPushNotifications();
             fetchNotifications();
+        }
+
+        function updateEmailDisplay(email) {
+            const display = document.getElementById('user-email-display');
+            display.textContent = email ? `✉ ${email}` : '✉ No email set — click to add';
+            display.style.opacity = email ? '1' : '0.5';
+            if (currentUser) currentUser.email = email;
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+        }
+
+        function showEmailEdit() {
+            document.getElementById('user-email-display').style.display = 'none';
+            document.getElementById('user-email-edit').style.display = 'inline-flex';
+            const input = document.getElementById('user-email-input');
+            input.value = currentUser?.email || '';
+            input.focus();
+        }
+
+        function hideEmailEdit() {
+            document.getElementById('user-email-display').style.display = '';
+            document.getElementById('user-email-edit').style.display = 'none';
+        }
+
+        async function saveEmail() {
+            const email = document.getElementById('user-email-input').value.trim() || null;
+            const res = await fetch(`/api/users/${currentUser.userId}/email`, {
+                method: 'PATCH',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ email })
+            });
+            if (!res.ok) { const d = await res.json(); return alert(d.error || 'Failed to save email.'); }
+            hideEmailEdit();
+            updateEmailDisplay(email);
         }
 
         function copyUserId() {

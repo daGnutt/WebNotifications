@@ -452,7 +452,7 @@ app.post('/api/auth', async (req, res) => {
       if (!valid) return res.status(401).json({ success: false, error: 'Incorrect password' });
 
       updateUserLastActive(user.user_id, () => {});
-      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username } });
+      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null } });
     }
   });
 });
@@ -563,6 +563,15 @@ app.get('/api/users', (req, res) => {
       guid: user_id,
       ...u
     })));
+  });
+});
+
+app.patch('/api/users/:userId/email', (req, res) => {
+  const { email } = req.body;
+  db.run('UPDATE users SET email = ? WHERE user_id = ?', [email || null, req.params.userId], function(err) {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to update email' });
+    if (this.changes === 0) return res.status(404).json({ success: false, error: 'User not found' });
+    res.status(200).json({ success: true });
   });
 });
 
