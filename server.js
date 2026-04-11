@@ -228,8 +228,22 @@ function deletePushSubscription(endpoint, callback) {
   });
 }
 
+// Middleware — all data endpoints require a valid userId
+function requireUserId(req, res, next) {
+  const userId = req.query.userId || req.body.userId;
+  if (!userId) {
+    return res.status(401).json({ success: false, error: 'userId is required' });
+  }
+  getUserById(userId, (err, user) => {
+    if (err) return res.status(500).json({ success: false, error: 'Database error' });
+    if (!user) return res.status(401).json({ success: false, error: 'Invalid userId' });
+    req.user = user;
+    next();
+  });
+}
+
 // API Endpoint to receive notifications from Android
-app.post('/api/notifications', async (req, res) => {
+app.post('/api/notifications', requireUserId, async (req, res) => {
   const { userId, ...notificationData } = req.body;
   const notification = notificationData;
 
@@ -310,9 +324,8 @@ app.get('/api/vapid-public-key', (req, res) => {
 });
 
 // API Endpoint to get all notifications
-app.get('/api/notifications', (req, res) => {
-  const userId = req.query.userId || null;
-  getAllNotifications(userId, (err, rows) => {
+app.get('/api/notifications', requireUserId, (req, res) => {
+  getAllNotifications(req.user.user_id, (err, rows) => {
     if (err) {
       console.error('Error fetching notifications:', err);
       return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
@@ -337,9 +350,10 @@ app.get('/api/notifications', (req, res) => {
 });
 
 // API Endpoint to dismiss a notification
-app.delete('/api/notifications/:id', (req, res) => {
+app.delete('/api/notifications/:id', requireUserId, (req, res) => {
   const id = req.params.id;
-  deleteNotification(id, (err) => {
+  // Only delete if the notification belongs to this user
+  db.run('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, req.user.user_id], function(err) {
     if (err) {
       console.error('Error deleting notification:', err);
       return res.status(500).json({ success: false, error: 'Failed to delete notification' });
@@ -349,10 +363,10 @@ app.delete('/api/notifications/:id', (req, res) => {
 });
 
 // API Endpoint to store push subscription
-app.post('/api/subscribe', (req, res) => {
+app.post('/api/subscribe', requireUserId, (req, res) => {
   const { userId, ...subscriptionData } = req.body;
   const subscription = subscriptionData;
-  addPushSubscription(subscription, userId || null, (err) => {
+  addPushSubscription(subscription, req.user.user_id, (err) => {
     if (err) {
       console.error('Error storing push subscription:', err);
       return res.status(500).json({ success: false, error: 'Failed to store subscription' });
@@ -363,8 +377,9 @@ app.post('/api/subscribe', (req, res) => {
 });
 
 // API Endpoint to send push notification (for testing)
-app.post('/api/send-push', async (req, res) => {
-  const { title, body, userId } = req.body;
+app.post('/api/send-push', requireUserId, async (req, res) => {
+  const { title, body } = req.body;
+  const userId = req.user.user_id;
 
   const notification = {
     title,
@@ -373,13 +388,13 @@ app.post('/api/send-push', async (req, res) => {
     id: Date.now().toString()
   };
 
-  addNotification(notification, userId || null, (err) => {
+  addNotification(notification, userId, (err) => {
     if (err) {
       console.error('Error storing notification:', err);
       return res.status(500).json({ success: false, error: 'Failed to store notification' });
     }
 
-    sendPushNotifications(notification, userId || null)
+    sendPushNotifications(notification, userId)
       .then(() => {
         res.status(200).json({ success: true, id: notification.id });
       })
@@ -391,7 +406,7 @@ app.post('/api/send-push', async (req, res) => {
 });
 
 // API Endpoint to handle notification actions
-app.post('/api/notifications/:id/actions', (req, res) => {
+app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
   const id = req.params.id;
   const action = req.body.action;
   const response = req.body.response;

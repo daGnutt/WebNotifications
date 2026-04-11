@@ -455,8 +455,13 @@
 
         // ── Notifications ────────────────────────────────────────────────────
         async function fetchNotifications() {
+            if (!currentUser) {
+                document.getElementById('notifications-container').innerHTML =
+                    '<div class="no-notifications">Sign in to view your notifications</div>';
+                return;
+            }
             try {
-                const url = currentUser ? `/api/notifications?userId=${currentUser.userId}` : '/api/notifications';
+                const url = `/api/notifications?userId=${currentUser.userId}`;
 
                 const response = await fetch(url);
                 const notifications = await response.json();
@@ -514,7 +519,7 @@
 
         async function dismissNotification(id) {
             try {
-                await fetch(`/api/notifications/${id}`, { method: 'DELETE' });
+                await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
                 document.getElementById(`notification-${id}`).remove();
                 unreadCount--;
                 updateTitleWithCount();
@@ -528,7 +533,7 @@
                 await fetch(`/api/notifications/${notificationId}/actions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: actionType, response })
+                    body: JSON.stringify({ action: actionType, response, userId: currentUser.userId })
                 });
                 document.getElementById(`notification-${notificationId}`).remove();
                 unreadCount--;
