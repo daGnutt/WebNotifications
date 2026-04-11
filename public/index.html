@@ -31,7 +31,7 @@
             font-family: Arial, sans-serif;
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 20px 20px 100px;
             background-color: var(--bg-color);
             color: var(--text-color);
             transition: background-color 0.3s, color 0.3s;
@@ -111,7 +111,15 @@
             border: 1px solid var(--border-color);
             border-radius: 8px;
             padding: 10px 15px;
-            margin-bottom: 20px;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            width: calc(100% - 40px);
+            max-width: 760px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+            box-sizing: border-box;
+            z-index: 100;
         }
         .user-bar-login {
             display: flex;
@@ -127,6 +135,7 @@
             background-color: var(--bg-color);
             color: var(--text-color);
             font-size: 14px;
+            min-width: 0;
         }
         .user-bar-info {
             display: flex;
@@ -179,14 +188,45 @@
 <body>
     <h1>Web Notifications</h1>
 
+    <div id="notifications-container"></div>
+
+    <!-- Filter bar (only shown when logged in) -->
+    <div class="filter-bar" id="filter-bar" style="display:none">
+        <label>
+            <input type="checkbox" id="filter-mine" checked onchange="fetchNotifications()" />
+            Show only my notifications
+        </label>
+    </div>
+
     <!-- User bar -->
     <div class="user-bar" id="user-bar">
         <div class="user-bar-login" id="login-form">
             <input type="text" id="username-input" placeholder="Username" maxlength="64"
                    onkeydown="if(event.key==='Enter') loginOrRegister()" />
+            <input type="email" id="email-input" placeholder="Email (optional, for reset)" maxlength="256"
+                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
             <input type="password" id="password-input" placeholder="Password" maxlength="128"
                    onkeydown="if(event.key==='Enter') loginOrRegister()" />
             <button class="btn btn-primary" onclick="loginOrRegister()">Sign In / Register</button>
+            <button class="btn btn-secondary" onclick="showResetForm()" title="Reset account via email">Reset</button>
+        </div>
+
+        <!-- Reset request form -->
+        <div id="reset-request-form" style="display:none; width:100%" class="user-bar-login">
+            <input type="text" id="reset-username-input" placeholder="Username" maxlength="64"
+                   onkeydown="if(event.key==='Enter') sendResetCode()" />
+            <button class="btn btn-primary" onclick="sendResetCode()">Send Code</button>
+            <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
+        </div>
+
+        <!-- Reset confirm form -->
+        <div id="reset-confirm-form" style="display:none; width:100%" class="user-bar-login">
+            <input type="text" id="reset-code-input" placeholder="6-digit code" maxlength="6"
+                   onkeydown="if(event.key==='Enter') confirmReset()" />
+            <input type="password" id="reset-newpassword-input" placeholder="New password" maxlength="128"
+                   onkeydown="if(event.key==='Enter') confirmReset()" />
+            <button class="btn btn-primary" onclick="confirmReset()">Reset Account</button>
+            <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
         </div>
         <div class="user-bar-info" id="user-info" style="display:none">
             <div class="user-avatar" id="user-avatar"></div>
@@ -196,14 +236,6 @@
             </div>
             <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
         </div>
-    </div>
-
-    <!-- Filter bar (only shown when logged in) -->
-    <div class="filter-bar" id="filter-bar" style="display:none">
-        <label>
-            <input type="checkbox" id="filter-mine" checked onchange="fetchNotifications()" />
-            Show only my notifications
-        </label>
     </div>
 
     <div id="notifications-container"></div>
@@ -224,13 +256,14 @@
         async function loginOrRegister() {
             const username = document.getElementById('username-input').value.trim();
             const password = document.getElementById('password-input').value;
+            const email    = document.getElementById('email-input').value.trim() || undefined;
             if (!username) return alert('Please enter a username.');
             if (!password) return alert('Please enter a password.');
 
             const res = await fetch('/api/auth', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password })
+                body: JSON.stringify({ username, password, email })
             });
 
             if (res.status === 401) return alert('Incorrect password.');
@@ -238,6 +271,58 @@
 
             const { user } = await res.json();
             document.getElementById('password-input').value = '';
+            document.getElementById('email-input').value = '';
+            setCurrentUser(user);
+        }
+
+        // ── Reset flow ───────────────────────────────────────────────────────
+        function showResetForm() {
+            document.getElementById('login-form').style.display = 'none';
+            document.getElementById('reset-request-form').style.display = 'flex';
+            document.getElementById('reset-confirm-form').style.display = 'none';
+        }
+
+        function showLoginForm() {
+            document.getElementById('login-form').style.display = 'flex';
+            document.getElementById('reset-request-form').style.display = 'none';
+            document.getElementById('reset-confirm-form').style.display = 'none';
+        }
+
+        async function sendResetCode() {
+            const username = document.getElementById('reset-username-input').value.trim();
+            if (!username) return alert('Please enter your username.');
+
+            const res = await fetch('/api/auth/reset-request', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ username })
+            });
+            const data = await res.json();
+            alert(data.message || 'Check your email for a reset code.');
+
+            document.getElementById('reset-request-form').style.display = 'none';
+            document.getElementById('reset-confirm-form').style.display = 'flex';
+        }
+
+        async function confirmReset() {
+            const code        = document.getElementById('reset-code-input').value.trim();
+            const newPassword = document.getElementById('reset-newpassword-input').value;
+            if (!code)        return alert('Please enter the code from your email.');
+            if (!newPassword) return alert('Please enter a new password.');
+
+            const res = await fetch('/api/auth/reset-confirm', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ code, newPassword })
+            });
+
+            if (!res.ok) { const d = await res.json(); return alert(d.error || 'Reset failed.'); }
+
+            const { user } = await res.json();
+            document.getElementById('reset-code-input').value = '';
+            document.getElementById('reset-newpassword-input').value = '';
+            showLoginForm();
+            alert('Account reset successfully. You are now signed in.');
             setCurrentUser(user);
         }
 

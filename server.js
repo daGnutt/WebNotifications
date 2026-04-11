@@ -4,6 +4,20 @@ const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
+const nodemailer = require('nodemailer');
+
+// Load secrets (SMTP config, etc.)
+let secrets = {};
+try {
+  secrets = require('./secrets.json');
+} catch (e) {
+  console.warn('secrets.json not found — email features will be unavailable');
+}
+
+function createMailTransport() {
+  if (!secrets.smtp) return null;
+  return nodemailer.createTransport(secrets.smtp);
+}
 const webpush = require('web-push');
 const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
@@ -46,13 +60,15 @@ function initializeDatabase() {
       CREATE TABLE IF NOT EXISTS users (
         user_id TEXT PRIMARY KEY,
         username TEXT UNIQUE,
+        email TEXT,
         password_hash TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         last_active TEXT
       )
     `);
-    // Migrate existing databases that lack the password_hash column
+    // Migrate existing databases that lack newer columns
     db.run(`ALTER TABLE users ADD COLUMN password_hash TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
     
     // Create notifications table with user_id
     db.run(`
@@ -74,6 +90,16 @@ function initializeDatabase() {
         user_id TEXT,
         subscription_data TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+      )
+    `);
+
+    // Reset codes for account reset via email
+    db.run(`
+      CREATE TABLE IF NOT EXISTS reset_codes (
+        code TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
     `);
@@ -129,16 +155,16 @@ function verifyPassword(password, hash) {
 }
 
 // User management functions
-async function createUser(username, password, callback) {
+async function createUser(username, password, email, callback) {
   try {
     const userId = uuidv4();
     const passwordHash = await hashPassword(password);
     const stmt = db.prepare(
-      'INSERT INTO users (user_id, username, password_hash, last_active) VALUES (?, ?, ?, ?)'
+      'INSERT INTO users (user_id, username, email, password_hash, last_active) VALUES (?, ?, ?, ?, ?)'
     );
-    stmt.run([userId, username, passwordHash, new Date().toISOString()], function(err) {
+    stmt.run([userId, username, email || null, passwordHash, new Date().toISOString()], function(err) {
       if (err) console.error('Error creating user:', err.message);
-      if (callback) callback(err, err ? null : { userId, username });
+      if (callback) callback(err, err ? null : { userId, username, email: email || null });
     });
     stmt.finalize();
   } catch (err) {
@@ -393,7 +419,7 @@ app.post('/api/notifications/:id/actions', (req, res) => {
 
 // Unified auth: register (new user) or login (existing user)
 app.post('/api/auth', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, email } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'username and password are required' });
   }
@@ -403,7 +429,7 @@ app.post('/api/auth', async (req, res) => {
 
     if (!user) {
       // New user — register
-      createUser(username, password, (createErr, newUser) => {
+      createUser(username, password, email, (createErr, newUser) => {
         if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
         res.status(201).json({ success: true, created: true, user: newUser });
       });
@@ -431,12 +457,95 @@ app.post('/api/auth', async (req, res) => {
   });
 });
 
+// POST /api/auth/reset-request — send a time-limited reset code to the user's email
+app.post('/api/auth/reset-request', (req, res) => {
+  const { username } = req.body;
+  if (!username) return res.status(400).json({ success: false, error: 'username is required' });
+
+  getUserByUsername(username, (err, user) => {
+    if (err) return res.status(500).json({ success: false, error: 'Database error' });
+    // Always respond the same way to avoid username enumeration
+    if (!user || !user.email) {
+      return res.status(200).json({ success: true, message: 'If an account with an email exists, a code has been sent.' });
+    }
+
+    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
+    const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
+
+    // Remove any existing codes for this user, then insert new one
+    db.run('DELETE FROM reset_codes WHERE user_id = ?', [user.user_id], () => {
+      db.run('INSERT INTO reset_codes (code, user_id, expires_at) VALUES (?, ?, ?)',
+        [code, user.user_id, expiresAt], async (insertErr) => {
+          if (insertErr) return res.status(500).json({ success: false, error: 'Failed to create reset code' });
+
+          const transport = createMailTransport();
+          if (!transport) {
+            console.warn(`[reset] SMTP not configured. Code for ${username}: ${code}`);
+            return res.status(200).json({ success: true, message: 'If an account with an email exists, a code has been sent.' });
+          }
+
+          try {
+            await transport.sendMail({
+              from: secrets.smtp.from,
+              to: user.email,
+              subject: 'Your account reset code',
+              text: `Your reset code is: ${code}\n\nIt expires in 15 minutes. If you did not request this, ignore this email.`,
+              html: `<p>Your reset code is: <strong>${code}</strong></p><p>It expires in 15 minutes. If you did not request this, ignore this email.</p>`
+            });
+          } catch (mailErr) {
+            console.error('Failed to send reset email:', mailErr.message);
+          }
+
+          res.status(200).json({ success: true, message: 'If an account with an email exists, a code has been sent.' });
+        });
+    });
+  });
+});
+
+// POST /api/auth/reset-confirm — verify code and recreate the account with a new password
+app.post('/api/auth/reset-confirm', (req, res) => {
+  const { code, newPassword } = req.body;
+  if (!code || !newPassword) {
+    return res.status(400).json({ success: false, error: 'code and newPassword are required' });
+  }
+
+  db.get('SELECT * FROM reset_codes WHERE code = ?', [code], (err, row) => {
+    if (err) return res.status(500).json({ success: false, error: 'Database error' });
+    if (!row) return res.status(400).json({ success: false, error: 'Invalid or expired code' });
+    if (new Date(row.expires_at) < new Date()) {
+      db.run('DELETE FROM reset_codes WHERE code = ?', [code], () => {});
+      return res.status(400).json({ success: false, error: 'Invalid or expired code' });
+    }
+
+    getUserById(row.user_id, (userErr, user) => {
+      if (userErr || !user) return res.status(500).json({ success: false, error: 'User not found' });
+
+      const { username, email } = user;
+
+      // Delete the old account and all associated data, then recreate
+      db.serialize(() => {
+        db.run('DELETE FROM reset_codes WHERE user_id = ?', [user.user_id]);
+        db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [user.user_id]);
+        db.run('DELETE FROM notifications WHERE user_id = ?', [user.user_id]);
+        db.run('DELETE FROM users WHERE user_id = ?', [user.user_id], (delErr) => {
+          if (delErr) return res.status(500).json({ success: false, error: 'Failed to reset account' });
+
+          createUser(username, newPassword, email, (createErr, newUser) => {
+            if (createErr) return res.status(500).json({ success: false, error: 'Failed to recreate account' });
+            res.status(200).json({ success: true, user: newUser });
+          });
+        });
+      });
+    });
+  });
+});
+
 app.post('/api/users', async (req, res) => {
-  const { username, password } = req.body;
+  const { username, password, email } = req.body;
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'username and password are required' });
   }
-  createUser(username, password, (err, user) => {
+  createUser(username, password, email, (err, user) => {
     if (err) {
       if (err.message && err.message.includes('UNIQUE')) {
         return res.status(409).json({ success: false, error: 'Username already exists' });
@@ -450,7 +559,10 @@ app.post('/api/users', async (req, res) => {
 app.get('/api/users', (req, res) => {
   getAllUsers((err, rows) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to fetch users' });
-    res.status(200).json(rows.map(({ password_hash, ...u }) => u));
+    res.status(200).json(rows.map(({ password_hash, user_id, ...u }) => ({
+      guid: user_id,
+      ...u
+    })));
   });
 });
 
