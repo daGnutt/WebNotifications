@@ -120,6 +120,15 @@
                 slideInNotification 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards,
                 glowPulse 0.7s ease 0.4s 3;
         }
+        @keyframes dismissNotification {
+            0%   { opacity: 1; transform: translateX(0);    box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            25%  { background-color: rgba(244, 67, 54, 0.12); box-shadow: 0 0 0 3px rgba(244,67,54,0.4); }
+            100% { opacity: 0; transform: translateX(60px); box-shadow: none; }
+        }
+        .notification-dismissing {
+            animation: dismissNotification 0.35s ease-in forwards;
+            pointer-events: none;
+        }
 
         /* ── Top indicator bar (always present, never shifts layout) ── */
         .notification-indicator {
@@ -136,6 +145,13 @@
         }
         .notification-indicator.incoming {
             animation: breatheGreen 1s ease-in-out infinite;
+        }
+        @keyframes flashRed {
+            0%, 100% { background-color: transparent; }
+            40%       { background-color: rgba(244, 67, 54, 1); }
+        }
+        .notification-indicator.dismissing {
+            animation: flashRed 0.4s ease-out forwards;
         }
         .user-bar {
             display: flex;
@@ -663,14 +679,26 @@
         }
 
         async function dismissNotification(id) {
-            try {
-                await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
-                document.getElementById(`notification-${id}`).remove();
+            const el = document.getElementById(`notification-${id}`);
+            if (!el) return;
+
+            // Flash the top bar red
+            const indicator = document.getElementById('notification-indicator');
+            indicator.classList.remove('incoming', 'dismissing');
+            void indicator.offsetWidth; // reflow to restart animation
+            indicator.classList.add('dismissing');
+            indicator.addEventListener('animationend', () => indicator.classList.remove('dismissing'), { once: true });
+
+            // Slide the card out, then delete
+            el.classList.add('notification-dismissing');
+            el.addEventListener('animationend', async () => {
+                el.remove();
                 unreadCount--;
                 updateTitleWithCount();
-            } catch (error) {
-                console.error('Error dismissing notification:', error);
-            }
+                try {
+                    await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
+                } catch (e) { console.error('Error dismissing notification:', e); }
+            }, { once: true });
         }
 
         async function handleAction(notificationId, actionType, response) {
