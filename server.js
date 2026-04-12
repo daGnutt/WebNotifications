@@ -256,6 +256,14 @@ function requireUserId(req, res, next) {
   });
 }
 
+// Normalize icon: accepts a URL, a data URI, or raw base64 (assumes PNG)
+function normalizeIcon(icon) {
+  if (!icon || typeof icon !== 'string') return null;
+  if (icon.startsWith('data:')) return icon;
+  if (icon.startsWith('http://') || icon.startsWith('https://')) return icon;
+  return `data:image/png;base64,${icon}`;
+}
+
 // API Endpoint to receive notifications from Android
 app.post('/api/notifications', requireUserId, async (req, res) => {
   const { userId, ...notificationData } = req.body;
@@ -265,6 +273,9 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   if (!notification.title?.trim() && !notification.body?.trim()) {
     return res.status(200).json({ success: true, ignored: true });
   }
+
+  // Normalise icon to a data URI (accepts URL, data URI, or raw base64)
+  if (notification.icon) notification.icon = normalizeIcon(notification.icon);
 
   // Add timestamp if not provided
   if (!notification.timestamp) {
