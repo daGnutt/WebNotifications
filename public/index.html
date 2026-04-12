@@ -172,7 +172,7 @@
         }
         .notification-intent a:hover { text-decoration: underline; }
 
-        /* Conversation thread (data.messages) */
+        /* Conversation thread (messages) */
         .message-thread {
             display: flex;
             flex-direction: column;
@@ -777,7 +777,7 @@ function connectSSE(userId) {
                             </div>
                             <div class="notification-time" data-timestamp="${notification.timestamp}">${relativeTime(notification.timestamp)}</div>
                         </div>
-                        ${notification.data?.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${notification.body || ''}</div>`}
+                        ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${notification.body || ''}</div>`}
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
                     </div>
@@ -847,7 +847,7 @@ function connectSSE(userId) {
         }
 
         function renderMessages(notification) {
-            const messages = notification.data?.messages;
+            const messages = notification.messages;
             if (!messages?.length) return '';
 
             const parts = messages.map((msg, i) => {
