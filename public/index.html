@@ -50,10 +50,15 @@
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             position: relative;
             border: 1px solid var(--border-color);
-            transition: background-color 0.3s, border-color 0.3s;
+            transition: background-color 0.3s, border-color 0.3s, opacity 0.2s;
             display: flex;
             align-items: flex-start;
             gap: 12px;
+        }
+        .notification-pending {
+            opacity: 0.45;
+            pointer-events: none;
+            cursor: default;
         }
         .notification-content {
             flex: 1;
@@ -937,18 +942,17 @@ function connectSSE(userId) {
 
         async function handleAction(notificationId, actionType, response) {
             const el = document.getElementById(`notification-${notificationId}`);
-            const buttons = el ? el.querySelectorAll('button, input') : [];
-            buttons.forEach(b => { b.disabled = true; });
+            if (el) el.classList.add('notification-pending');
             try {
                 await fetch(`/api/notifications/${notificationId}/actions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: actionType, response, userId: currentUser.userId })
                 });
-                // Let the backend decide removal via SSE; re-enable on failure only
+                // Let the backend decide removal via SSE; restore on failure only
             } catch (error) {
                 console.error('Error handling action:', error);
-                buttons.forEach(b => { b.disabled = false; });
+                if (el) el.classList.remove('notification-pending');
             }
         }
 
