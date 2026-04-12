@@ -82,6 +82,7 @@ function initializeDatabase() {
     // Migrate existing databases that lack newer columns
     db.run(`ALTER TABLE users ADD COLUMN password_hash TEXT`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN show_app_name INTEGER DEFAULT 0`, () => {});
     
     // Create notifications table with user_id
     db.run(`
@@ -498,7 +499,7 @@ app.post('/api/auth', async (req, res) => {
       // New user — register
       createUser(username, password, email, (createErr, newUser) => {
         if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
-        res.status(201).json({ success: true, created: true, user: newUser });
+        res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false } });
       });
     } else {
       // Existing user — verify password
@@ -519,7 +520,7 @@ app.post('/api/auth', async (req, res) => {
       if (!valid) return res.status(401).json({ success: false, error: 'Incorrect password' });
 
       updateUserLastActive(user.user_id, () => {});
-      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null } });
+      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name } });
     }
   });
 });
@@ -640,6 +641,16 @@ app.patch('/api/users/:userId/email', (req, res) => {
     if (this.changes === 0) return res.status(404).json({ success: false, error: 'User not found' });
     res.status(200).json({ success: true });
   });
+});
+
+app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
+  const { show_app_name } = req.body;
+  db.run('UPDATE users SET show_app_name = ? WHERE user_id = ?',
+    [show_app_name ? 1 : 0, req.user.user_id], function(err) {
+      if (err) return res.status(500).json({ success: false, error: 'Failed to update preferences' });
+      res.status(200).json({ success: true });
+    }
+  );
 });
 
 app.get('/api/users/by-username/:username', (req, res) => {

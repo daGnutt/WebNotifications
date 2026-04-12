@@ -51,10 +51,38 @@
             position: relative;
             border: 1px solid var(--border-color);
             transition: background-color 0.3s, border-color 0.3s;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
         }
+        .notification-content {
+            flex: 1;
+            min-width: 0;
+        }
+        .notification-icon {
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            object-fit: cover;
+            flex-shrink: 0;
+        }
+        .notification-title-row {
+            display: flex;
+            align-items: baseline;
+            gap: 6px;
+            flex-wrap: wrap;
+        }
+        .notification-app-name {
+            font-size: 11px;
+            color: var(--header-color);
+            font-weight: normal;
+            display: none;
+        }
+        body.show-app-name .notification-app-name { display: inline; }
         .notification-header {
             display: flex;
             justify-content: space-between;
+            align-items: flex-start;
             margin-bottom: 10px;
         }
         .notification-title {
@@ -277,6 +305,10 @@
                     </span>
                 </div>
             </div>
+            <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;color:var(--text-color)">
+                <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
+                App name
+            </label>
             <button class="btn btn-secondary" onclick="showQRCode()" title="Show QR code to configure smartphone">QR Code</button>
             <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
         </div>
@@ -408,6 +440,10 @@ function connectSSE(userId) {
             document.getElementById('user-avatar').textContent = user.username.charAt(0).toUpperCase();
             updateEmailDisplay(user.email || null);
 
+            const showAppName = user.showAppName || false;
+            document.body.classList.toggle('show-app-name', showAppName);
+            document.getElementById('show-app-name-checkbox').checked = showAppName;
+
             subscribeToPushNotifications();
             fetchNotifications();
             connectSSE(user.userId);
@@ -461,6 +497,7 @@ function connectSSE(userId) {
             currentUser = null;
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
+            document.body.classList.remove('show-app-name');
 
             document.getElementById('login-form').style.display = 'flex';
             document.getElementById('username-input').value = '';
@@ -468,14 +505,38 @@ function connectSSE(userId) {
             fetchNotifications();
         }
 
+        async function toggleShowAppName(checked) {
+            document.body.classList.toggle('show-app-name', checked);
+            if (currentUser) {
+                currentUser.showAppName = checked;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                try {
+                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUser.userId, show_app_name: checked ? 1 : 0 })
+                    });
+                } catch (e) { console.error('Failed to save preference:', e); }
+            }
+        }
+
         function restoreSession() {
             const saved = localStorage.getItem('currentUser');
             if (saved) {
                 try {
                     const user = JSON.parse(saved);
-                    // Verify user still exists on the server
+                    // Verify user still exists and fetch fresh preferences
                     fetch(`/api/users/${user.userId}`)
-                        .then(r => r.ok ? setCurrentUser(user) : logout())
+                        .then(async r => {
+                            if (!r.ok) return logout();
+                            const fetched = await r.json();
+                            setCurrentUser({
+                                userId: fetched.user_id,
+                                username: fetched.username,
+                                email: fetched.email || null,
+                                showAppName: !!fetched.show_app_name
+                            });
+                        })
                         .catch(() => logout());
                 } catch (e) { logout(); }
             }
@@ -605,13 +666,19 @@ function connectSSE(userId) {
             container.innerHTML = notifications.map(notification => `
                 <div class="notification${newIds.has(notification.id) ? ' notification-new' : ''}"
                      id="notification-${notification.id}">
-                    <div class="notification-header">
-                        <div class="notification-title">${notification.title || 'Notification'}</div>
-                        <div class="notification-time">${formatTime(notification.timestamp)}</div>
+                    ${notification.icon ? `<img class="notification-icon" src="${notification.icon}" alt="" onerror="this.style.display='none'">` : ''}
+                    <div class="notification-content">
+                        <div class="notification-header">
+                            <div class="notification-title-row">
+                                <span class="notification-title">${notification.title || 'Notification'}</span>
+                                ${notification.appName ? `<span class="notification-app-name">${notification.appName}</span>` : ''}
+                            </div>
+                            <div class="notification-time">${formatTime(notification.timestamp)}</div>
+                        </div>
+                        <div class="notification-body">${notification.body || ''}</div>
+                        ${notification.actions ? renderActions(notification) : ''}
+                        <button class="dismiss-button" onclick="dismissNotification('${notification.id}')">Dismiss</button>
                     </div>
-                    <div class="notification-body">${notification.body || ''}</div>
-                    ${notification.actions ? renderActions(notification) : ''}
-                    <button class="dismiss-button" onclick="dismissNotification('${notification.id}')">Dismiss</button>
                 </div>
             `).join('');
         }
