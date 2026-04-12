@@ -295,6 +295,8 @@
         let headsUpTimeout = null;
         let initialLoadDone = false;
         const HEADS_UP_MS = 2000;
+        let sseConnection = null;
+        let sseFallbackInterval = null;
 
         // ── User management ──────────────────────────────────────────────────
         async function loginOrRegister() {
@@ -368,6 +370,31 @@
             setCurrentUser(user);
         }
 
+function connectSSE(userId) {
+            disconnectSSE();
+            const url = `/api/notifications/stream?userId=${encodeURIComponent(userId)}`;
+            sseConnection = new EventSource(url);
+            sseConnection.addEventListener('update', () => fetchNotifications());
+            sseConnection.onerror = () => {
+                // EventSource auto-reconnects; also start a fallback poll in case SSE stays broken
+                if (!sseFallbackInterval) {
+                    sseFallbackInterval = setInterval(fetchNotifications, 30000);
+                }
+            };
+            sseConnection.addEventListener('connected', () => {
+                // SSE is working — clear any fallback poll
+                if (sseFallbackInterval) {
+                    clearInterval(sseFallbackInterval);
+                    sseFallbackInterval = null;
+                }
+            });
+        }
+
+        function disconnectSSE() {
+            if (sseConnection) { sseConnection.close(); sseConnection = null; }
+            if (sseFallbackInterval) { clearInterval(sseFallbackInterval); sseFallbackInterval = null; }
+        }
+
         function setCurrentUser(user) {
             currentUser = user;
             localStorage.setItem('currentUser', JSON.stringify(user));
@@ -381,6 +408,7 @@
 
             subscribeToPushNotifications();
             fetchNotifications();
+            connectSSE(user.userId);
         }
 
         function updateEmailDisplay(email) {
@@ -427,6 +455,7 @@
         }
 
         function logout() {
+            disconnectSSE();
             currentUser = null;
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
@@ -722,10 +751,8 @@
         updateFavicon(0);
         restoreSession();
 
-        // If not logged in, still show all notifications
+        // If not logged in, still show all notifications (no SSE needed — no user-specific stream)
         if (!localStorage.getItem('currentUser')) fetchNotifications();
-
-        setInterval(fetchNotifications, 5000);
     </script>
 </body>
 </html>

@@ -26,6 +26,18 @@ const { v4: uuidv4 } = require('uuid');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// SSE clients: userId -> Set of response objects
+const sseClients = new Map();
+
+function broadcastToUser(userId, event, data) {
+  const clients = sseClients.get(userId);
+  if (!clients || clients.size === 0) return;
+  const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
+  for (const res of clients) {
+    res.write(payload);
+  }
+}
+
 // Set up web-push with VAPID keys
 const vapidKeys = {
   publicKey: 'VAPID_PUBLIC_KEY_REMOVED',
@@ -265,6 +277,9 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
 
     console.log('Received notification:', notification);
 
+    // Broadcast to any open SSE connections for this user
+    if (userId) broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
+
     // Send push notifications to all subscribers (or user-specific ones)
     sendPushNotifications(notification, userId)
       .then(() => {
@@ -350,15 +365,43 @@ app.get('/api/notifications', requireUserId, (req, res) => {
   });
 });
 
+// SSE endpoint — keeps connection open and pushes update events to the browser
+app.get('/api/notifications/stream', requireUserId, (req, res) => {
+  const userId = req.user.user_id;
+
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  // Register this client
+  if (!sseClients.has(userId)) sseClients.set(userId, new Set());
+  sseClients.get(userId).add(res);
+
+  // Send an initial heartbeat so the browser knows it's connected
+  res.write('event: connected\ndata: {}\n\n');
+
+  // Keep-alive ping every 25 seconds to prevent proxy timeouts
+  const heartbeat = setInterval(() => res.write(':ping\n\n'), 25000);
+
+  req.on('close', () => {
+    clearInterval(heartbeat);
+    sseClients.get(userId)?.delete(res);
+    if (sseClients.get(userId)?.size === 0) sseClients.delete(userId);
+  });
+});
+
 // API Endpoint to dismiss a notification
 app.delete('/api/notifications/:id', requireUserId, (req, res) => {
   const id = req.params.id;
+  const userId = req.user.user_id;
   // Only delete if the notification belongs to this user
-  db.run('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, req.user.user_id], function(err) {
+  db.run('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, userId], function(err) {
     if (err) {
       console.error('Error deleting notification:', err);
       return res.status(500).json({ success: false, error: 'Failed to delete notification' });
     }
+    broadcastToUser(userId, 'update', { reason: 'delete', id });
     res.status(200).json({ success: true });
   });
 });
@@ -395,6 +438,8 @@ app.post('/api/send-push', requireUserId, async (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to store notification' });
     }
 
+    broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
+
     sendPushNotifications(notification, userId)
       .then(() => {
         res.status(200).json({ success: true, id: notification.id });
@@ -426,6 +471,7 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
 
     db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
       if (updateErr) console.error('Error updating notification action:', updateErr.message);
+      broadcastToUser(req.user.user_id, 'update', { reason: 'action', id });
       res.status(200).json({ success: true });
     });
   });
