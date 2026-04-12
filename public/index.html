@@ -176,12 +176,12 @@
                 glowPulse 0.7s ease 0.4s 3;
         }
         @keyframes dismissNotification {
-            0%   { opacity: 1; transform: translateX(0);    box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-            25%  { background-color: rgba(244, 67, 54, 0.12); box-shadow: 0 0 0 3px rgba(244,67,54,0.4); }
-            100% { opacity: 0; transform: translateX(60px); box-shadow: none; }
+            0%   { opacity: 1; background-color: var(--card-bg);              box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            40%  { opacity: 1; background-color: rgba(244, 67, 54, 0.22);     box-shadow: 0 0 0 3px rgba(244,67,54,0.45); }
+            100% { opacity: 0; background-color: rgba(244, 67, 54, 0.08);     box-shadow: none; }
         }
         .notification-dismissing {
-            animation: dismissNotification 0.35s ease-in forwards;
+            animation: dismissNotification 0.8s ease-in-out forwards;
             pointer-events: none;
         }
 
@@ -201,12 +201,13 @@
         .notification-indicator.incoming {
             animation: breatheGreen 1s ease-in-out infinite;
         }
-        @keyframes flashRed {
-            0%, 100% { background-color: transparent; }
-            40%       { background-color: rgba(244, 67, 54, 1); }
+        @keyframes breatheRed {
+            0%   { background-color: transparent; }
+            50%  { background-color: rgba(244, 67, 54, 1); }
+            100% { background-color: transparent; }
         }
         .notification-indicator.dismissing {
-            animation: flashRed 0.4s ease-out forwards;
+            animation: breatheRed 0.8s ease-in-out;
         }
         .user-bar {
             display: flex;
