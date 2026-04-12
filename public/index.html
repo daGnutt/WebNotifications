@@ -752,8 +752,7 @@ function connectSSE(userId) {
             if (!currentUser) return;
             const payload = JSON.stringify({
                 serverUrl: window.location.origin,
-                userId: currentUser.userId,
-                username: currentUser.username
+                userId: currentUser.userId
             });
             const container = document.getElementById('qr-canvas');
             container.innerHTML = '';  // clear previous render
