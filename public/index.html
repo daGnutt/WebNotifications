@@ -45,7 +45,7 @@
         .notification {
             background-color: var(--card-bg);
             border-radius: 8px;
-            padding: 15px;
+            padding: 15px 40px 15px 15px;
             margin-bottom: 15px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             position: relative;
@@ -689,7 +689,7 @@ function connectSSE(userId) {
                                 <span class="notification-title">${notification.title || 'Notification'}</span>
                                 ${notification.appName ? `<span class="notification-app-name">${notification.appName}</span>` : ''}
                             </div>
-                            <div class="notification-time">${formatTime(notification.timestamp)}</div>
+                            <div class="notification-time" data-timestamp="${notification.timestamp}">${relativeTime(notification.timestamp)}</div>
                         </div>
                         <div class="notification-body">${notification.body || ''}</div>
                         ${notification.actions ? renderActions(notification) : ''}
@@ -712,9 +712,32 @@ function connectSSE(userId) {
             `;
         }
 
-        function formatTime(timestamp) {
-            return new Date(timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        function relativeTime(timestamp) {
+            const diff = Math.floor((Date.now() - new Date(timestamp).getTime()) / 1000);
+            if (diff < 60)   return 'just now';
+            if (diff < 120)  return '1 min ago';
+            if (diff < 3600) return `${Math.floor(diff / 60)} mins ago`;
+            if (diff < 7200) return '1 hour ago';
+            if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
+
+            const then = new Date(timestamp);
+            const yesterday = new Date();
+            yesterday.setDate(yesterday.getDate() - 1);
+            if (then.toDateString() === yesterday.toDateString())
+                return `yesterday at ${then.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
+
+            const opts = { day: 'numeric', month: 'short' };
+            if (then.getFullYear() !== new Date().getFullYear()) opts.year = 'numeric';
+            return then.toLocaleDateString([], opts);
         }
+
+        function refreshTimestamps() {
+            document.querySelectorAll('.notification-time[data-timestamp]').forEach(el => {
+                el.textContent = relativeTime(el.dataset.timestamp);
+            });
+        }
+
+        setInterval(refreshTimestamps, 30000);
 
         function updateTitleWithCount() {
             document.title = unreadCount > 0 ? `(${unreadCount}) Web Notifications` : 'Web Notifications';
