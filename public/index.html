@@ -936,20 +936,19 @@ function connectSSE(userId) {
         }
 
         async function handleAction(notificationId, actionType, response) {
+            const el = document.getElementById(`notification-${notificationId}`);
+            const buttons = el ? el.querySelectorAll('button, input') : [];
+            buttons.forEach(b => { b.disabled = true; });
             try {
                 await fetch(`/api/notifications/${notificationId}/actions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: actionType, response, userId: currentUser.userId })
                 });
-                // UI-initiated: instant removal, no animation
-                const el = document.getElementById(`notification-${notificationId}`);
-                if (el) el.remove();
-                shownNotificationIds.delete(notificationId);
-                unreadCount = Math.max(0, unreadCount - 1);
-                updateTitleWithCount();
+                // Let the backend decide removal via SSE; re-enable on failure only
             } catch (error) {
                 console.error('Error handling action:', error);
+                buttons.forEach(b => { b.disabled = false; });
             }
         }
 
