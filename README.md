@@ -1,6 +1,6 @@
 # Web Notifications
 
-A self-hosted service that receives push notifications from Android devices and displays them in a web interface. Supports multiple users, browser push notifications, and account management.
+A self-hosted service that receives push notifications from Android devices and displays them in a web interface. Supports multiple users, real-time SSE updates, browser push notifications, QR-code device setup, and account management.
 
 ## Running
 
@@ -12,6 +12,8 @@ npm run dev      # watch mode (nodemon)
 
 Access the web interface at `http://localhost:3000`.  
 Set the `PORT` environment variable to change the port.
+
+The server listens on all IPv4 **and** IPv6 interfaces (`::`, dual-stack).
 
 ## Configuration
 
@@ -42,8 +44,9 @@ Sign in (or register) with a username and password. Once signed in you can:
 - Click your user ID to copy it to the clipboard
 - Set or update your email address (used for account reset)
 - Reset your account via a 6-digit email code (deletes all data and recreates the account)
+- Generate a **QR code** to configure a smartphone — click the "QR Code" button in the user bar (see [QR_CODE.md](QR_CODE.md))
 
-The page polls for new notifications every 5 seconds. Browser push notifications are delivered via the service worker when no tab is open. Incoming notifications slide in with an animation; dismissed notifications fade out with a red flash. The favicon badge shows the unread count.
+New notifications are delivered in real-time via **Server-Sent Events** (SSE) while a tab is open. Browser push notifications are delivered via the service worker when no tab is open. Incoming notifications slide in with an animation; dismissed notifications fade out with a red flash. The favicon badge shows the unread count.
 
 ## API
 
@@ -66,8 +69,9 @@ The page polls for new notifications every 5 seconds. Browser push notifications
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/notifications` | Receive a notification (fans out push to subscribers). Requires `userId`. |
+| `POST` | `/api/notifications` | Receive a notification (fans out push + SSE to subscribers). Requires `userId`. Silently ignored if both `title` and `body` are blank. |
 | `GET` | `/api/notifications?userId=<id>` | List notifications for the given user. |
+| `GET` | `/api/notifications/stream?userId=<id>` | SSE stream — pushes `update` events to open browser tabs in real time. |
 | `DELETE` | `/api/notifications/:id` | Dismiss a notification (only the owning user may delete). |
 | `POST` | `/api/notifications/:id/actions` | Record an action (e.g. quick reply) on a notification. |
 | `POST` | `/api/send-push` | Trigger a web-push to all subscriptions for the given user without storing a notification. |
