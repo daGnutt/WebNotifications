@@ -264,6 +264,16 @@ function normalizeIcon(icon) {
   return `data:image/png;base64,${icon}`;
 }
 
+// Normalize actions: accept 'action' (singular), 'buttons', or 'intents' as aliases
+function normalizeActions(n) {
+  if (n.actions) return;
+  const raw = n.action ?? n.buttons ?? n.intents;
+  if (!raw) return;
+  const arr = Array.isArray(raw) ? raw : [typeof raw === 'string' ? { title: raw } : raw];
+  n.actions = arr;
+  delete n.action; delete n.buttons; delete n.intents;
+}
+
 // API Endpoint to receive notifications from Android
 app.post('/api/notifications', requireUserId, async (req, res) => {
   const { userId, ...notificationData } = req.body;
@@ -276,6 +286,9 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
 
   // Normalise icon to a data URI (accepts URL, data URI, or raw base64)
   if (notification.icon) notification.icon = normalizeIcon(notification.icon);
+
+  // Normalise actions from any common alternative field name
+  normalizeActions(notification);
 
   // Add timestamp if not provided
   if (!notification.timestamp) {
