@@ -260,6 +260,11 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   const { userId, ...notificationData } = req.body;
   const notification = notificationData;
 
+  // Ignore notifications with no title and no body
+  if (!notification.title?.trim() && !notification.body?.trim()) {
+    return res.status(200).json({ success: true, ignored: true });
+  }
+
   // Add timestamp if not provided
   if (!notification.timestamp) {
     notification.timestamp = new Date().toISOString();
