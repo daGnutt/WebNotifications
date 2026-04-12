@@ -38,17 +38,17 @@ function broadcastToUser(userId, event, data) {
   }
 }
 
-// Set up web-push with VAPID keys
-const vapidKeys = {
-  publicKey: 'VAPID_PUBLIC_KEY_REMOVED',
-  privateKey: 'VAPID_PRIVATE_KEY_REMOVED'
-};
-
-webpush.setVapidDetails(
-  'mailto:example@yourdomain.org',
-  vapidKeys.publicKey,
-  vapidKeys.privateKey
-);
+// Set up web-push with VAPID keys from secrets.json
+const vapidKeys = secrets.vapid || {};
+if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
+  console.warn('VAPID keys not configured in secrets.json — web push will be unavailable');
+} else {
+  webpush.setVapidDetails(
+    vapidKeys.mailto || 'mailto:example@yourdomain.org',
+    vapidKeys.publicKey,
+    vapidKeys.privateKey
+  );
+}
 
 // Middleware
 app.use(cors());
