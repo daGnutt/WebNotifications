@@ -111,13 +111,28 @@
             border-radius: 4px;
             cursor: pointer;
         }
-        .dismiss-button {
-            padding: 5px 10px;
-            background-color: var(--dismiss-bg);
-            color: white;
+        .close-button {
+            position: absolute;
+            top: 8px;
+            right: 10px;
+            width: 22px;
+            height: 22px;
+            background: none;
             border: none;
-            border-radius: 4px;
             cursor: pointer;
+            font-size: 16px;
+            line-height: 22px;
+            text-align: center;
+            color: var(--header-color);
+            border-radius: 4px;
+            padding: 0;
+            opacity: 0.5;
+            transition: opacity 0.15s, background-color 0.15s;
+        }
+        .close-button:hover {
+            opacity: 1;
+            background-color: rgba(244, 67, 54, 0.12);
+            color: #f44336;
         }
         .reply-input {
             padding: 8px;
@@ -667,6 +682,7 @@ function connectSSE(userId) {
                 <div class="notification${newIds.has(notification.id) ? ' notification-new' : ''}"
                      id="notification-${notification.id}">
                     ${notification.icon ? `<img class="notification-icon" src="${notification.icon}" alt="" onerror="this.style.display='none'">` : ''}
+                    <button class="close-button" onclick="dismissNotification('${notification.id}')" title="Dismiss">&#x2715;</button>
                     <div class="notification-content">
                         <div class="notification-header">
                             <div class="notification-title-row">
@@ -677,7 +693,6 @@ function connectSSE(userId) {
                         </div>
                         <div class="notification-body">${notification.body || ''}</div>
                         ${notification.actions ? renderActions(notification) : ''}
-                        <button class="dismiss-button" onclick="dismissNotification('${notification.id}')">Dismiss</button>
                     </div>
                 </div>
             `).join('');
