@@ -23,6 +23,22 @@ const webpush = require('web-push');
 const sqlite3 = require('sqlite3').verbose();
 const { v4: uuidv4 } = require('uuid');
 
+// Initialise Firebase Admin SDK for FCM data messages (optional)
+let fcmAdmin = null;
+const fcmConfig = secrets.fcm || {};
+if (fcmConfig.serviceAccount) {
+  try {
+    const admin = require('firebase-admin');
+    admin.initializeApp({ credential: admin.credential.cert(fcmConfig.serviceAccount) });
+    fcmAdmin = admin;
+    console.log('Firebase Admin SDK initialised — FCM enabled');
+  } catch (e) {
+    console.warn('Failed to initialise Firebase Admin SDK:', e.message);
+  }
+} else {
+  console.warn('FCM service account not configured in secrets.json — FCM data push will be unavailable');
+}
+
 const app = express();
 const PORT = process.env.PORT || 3000;
 
@@ -114,6 +130,16 @@ function initializeDatabase() {
         code TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         expires_at TEXT NOT NULL,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+      )
+    `);
+
+    // FCM device tokens — one row per device (token is globally unique)
+    db.run(`
+      CREATE TABLE IF NOT EXISTS device_tokens (
+        fcm_token TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
     `);
@@ -242,6 +268,29 @@ function deletePushSubscription(endpoint, callback) {
   });
 }
 
+// Device token helpers (FCM)
+function addDeviceToken(userId, token, callback) {
+  db.run(
+    'INSERT OR REPLACE INTO device_tokens (fcm_token, user_id, created_at) VALUES (?, ?, ?)',
+    [token, userId, new Date().toISOString()],
+    function(err) {
+      if (err) console.error('Error adding device token:', err.message);
+      if (callback) callback(err, this);
+    }
+  );
+}
+
+function getDeviceTokensForUser(userId, callback) {
+  db.all('SELECT fcm_token FROM device_tokens WHERE user_id = ?', [userId], callback);
+}
+
+function deleteDeviceToken(token, callback) {
+  db.run('DELETE FROM device_tokens WHERE fcm_token = ?', [token], function(err) {
+    if (err) console.error('Error deleting device token:', err.message);
+    if (callback) callback(err, this);
+  });
+}
+
 // Middleware — all data endpoints require a valid userId
 function requireUserId(req, res, next) {
   const userId = req.query.userId || req.body.userId;
@@ -364,6 +413,38 @@ async function sendPushNotifications(notification, userId) {
   await Promise.all(sendPromises);
 }
 
+// Send FCM data messages to all registered devices for a user
+async function sendFcmDataMessages(userId, payload) {
+  if (!fcmAdmin) return;
+  const tokens = await new Promise((resolve, reject) => {
+    getDeviceTokensForUser(userId, (err, rows) => {
+      if (err) return reject(err);
+      resolve(rows.map(r => r.fcm_token));
+    });
+  });
+  if (tokens.length === 0) return;
+
+  // FCM data messages require all values to be strings
+  const data = {};
+  for (const [k, v] of Object.entries(payload)) data[k] = String(v);
+
+  const results = await Promise.allSettled(
+    tokens.map(token => fcmAdmin.messaging().send({ token, data }))
+  );
+  results.forEach((result, i) => {
+    if (result.status === 'rejected') {
+      const err = result.reason;
+      console.error('FCM send error for token', tokens[i], ':', err.message);
+      if (
+        err.code === 'messaging/registration-token-not-registered' ||
+        err.code === 'messaging/invalid-registration-token'
+      ) {
+        deleteDeviceToken(tokens[i], () => {});
+      }
+    }
+  });
+}
+
 // API Endpoint to get VAPID public key
 app.get('/api/vapid-public-key', (req, res) => {
   res.status(200).json({ publicKey: vapidKeys.publicKey });
@@ -432,6 +513,8 @@ app.delete('/api/notifications/:id', requireUserId, (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to delete notification' });
     }
     broadcastToUser(userId, 'update', { reason: 'delete', id });
+    sendFcmDataMessages(userId, { type: 'dismiss', notificationId: id })
+      .catch(e => console.error('FCM dismiss error:', e.message));
     res.status(200).json({ success: true });
   });
 });
@@ -446,6 +529,20 @@ app.post('/api/subscribe', requireUserId, (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to store subscription' });
     }
     console.log('New push subscription stored:', subscription.endpoint);
+    res.status(200).json({ success: true });
+  });
+});
+
+// API Endpoint to register an FCM device token
+app.post('/api/device-tokens', requireUserId, (req, res) => {
+  const { token } = req.body;
+  if (!token) return res.status(400).json({ success: false, error: 'token is required' });
+  addDeviceToken(req.user.user_id, token, (err) => {
+    if (err) {
+      console.error('Error storing device token:', err);
+      return res.status(500).json({ success: false, error: 'Failed to store device token' });
+    }
+    console.log('FCM device token stored for user', req.user.user_id);
     res.status(200).json({ success: true });
   });
 });
@@ -502,7 +599,12 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
 
     db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
       if (updateErr) console.error('Error updating notification action:', updateErr.message);
-      broadcastToUser(req.user.user_id, 'update', { reason: 'action', id });
+      const userId = req.user.user_id;
+      broadcastToUser(userId, 'update', { reason: 'action', id });
+      const fcmPayload = { type: 'action', notificationId: id, actionTaken: String(action) };
+      if (response != null) fcmPayload.actionResponse = String(response);
+      sendFcmDataMessages(userId, fcmPayload)
+        .catch(e => console.error('FCM action error:', e.message));
       res.status(200).json({ success: true });
     });
   });
@@ -650,6 +752,7 @@ app.post('/api/auth/reset-confirm', (req, res) => {
       db.serialize(() => {
         db.run('DELETE FROM reset_codes WHERE user_id = ?', [user.user_id]);
         db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [user.user_id]);
+        db.run('DELETE FROM device_tokens WHERE user_id = ?', [user.user_id]);
         db.run('DELETE FROM notifications WHERE user_id = ?', [user.user_id]);
         db.run('DELETE FROM users WHERE user_id = ?', [user.user_id], (delErr) => {
           if (delErr) return res.status(500).json({ success: false, error: 'Failed to reset account' });
@@ -754,6 +857,7 @@ function pruneInactiveUsers() {
     db.serialize(() => {
       db.run(`DELETE FROM reset_codes       WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM push_subscriptions WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM device_tokens      WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM notifications      WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM users              WHERE user_id IN (${placeholders})`, ids, (delErr) => {
         if (!delErr) console.log(`Pruned ${ids.length} inactive user(s) (last active before ${cutoff})`);
