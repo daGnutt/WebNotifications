@@ -44,7 +44,7 @@ Content-Type: application/json
 }
 ```
 
-See [API_DOCS.md](API_DOCS.md) for the full notification API reference.
+See [README.md](README.md) for the full notification API reference.
 
 ## Security Considerations
 

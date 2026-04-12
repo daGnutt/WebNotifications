@@ -17,10 +17,15 @@ The server listens on all IPv4 **and** IPv6 interfaces (`::`, dual-stack).
 
 ## Configuration
 
-Copy `secrets.example.json` to `secrets.json` and fill in your SMTP details to enable email-based account reset:
+Copy `secrets.example.json` to `secrets.json`. VAPID keys are required for browser push notifications; SMTP is required for email-based account reset.
 
 ```json
 {
+  "vapid": {
+    "publicKey": "<your VAPID public key>",
+    "privateKey": "<your VAPID private key>",
+    "mailto": "mailto:you@example.com"
+  },
   "smtp": {
     "host": "smtp.example.com",
     "port": 587,
@@ -34,7 +39,12 @@ Copy `secrets.example.json` to `secrets.json` and fill in your SMTP details to e
 }
 ```
 
-`secrets.json` is gitignored. If it is absent, reset codes are printed to the server console as a fallback.
+Generate VAPID keys with:
+```bash
+npx web-push generate-vapid-keys
+```
+
+`secrets.json` is gitignored. If VAPID keys are absent, web push is unavailable. If SMTP is absent, reset codes are printed to the server console as a fallback.
 
 ## Web Interface
 
@@ -73,7 +83,8 @@ New notifications are delivered in real-time via **Server-Sent Events** (SSE) wh
 | `GET` | `/api/notifications?userId=<id>` | List notifications for the given user. |
 | `GET` | `/api/notifications/stream?userId=<id>` | SSE stream — pushes `update` events to open browser tabs in real time. |
 | `DELETE` | `/api/notifications/:id` | Dismiss a notification (only the owning user may delete). |
-| `POST` | `/api/notifications/:id/actions` | Record an action (e.g. quick reply) on a notification. |
+| `POST` | `/api/notifications/:id/actions` | Record an action/reply on a notification (web UI → Android). |
+| `POST` | `/api/notifications/:id/actions/dispatched` | Acknowledge the Android app has sent the action. Prevents re-processing on subsequent polls. |
 | `POST` | `/api/send-push` | Trigger a web-push to all subscriptions for the given user without storing a notification. |
 
 **Send a notification to a specific user:**
@@ -91,10 +102,13 @@ Optional fields on `POST /api/notifications`:
 
 ```json
 {
-  "userId": "optional — targets a specific user's push subscriptions",
-  "timestamp": "optional — auto-generated if omitted",
+  "userId":        "optional — targets a specific user's push subscriptions",
+  "timestamp":     "optional — ISO 8601, auto-generated if omitted",
+  "icon":          "optional — URL, data URI, or raw base64 image",
+  "appName":       "optional — source app display name",
+  "sourcePackage": "optional — Android package name (e.g. com.example.app)",
   "actions": [
-    { "type": "reply", "title": "Reply" },
+    { "type": "reply",   "title": "Reply" },
     { "type": "action1", "title": "Approve" }
   ]
 }
@@ -107,8 +121,9 @@ Optional fields on `POST /api/notifications`:
 | `GET` | `/api/users` | List all users (`guid`, `username`, `email`, `created_at`, `last_active`). |
 | `GET` | `/api/users/:userId` | Get a single user (also updates `last_active`). |
 | `GET` | `/api/users/by-username/:username` | Look up a user by username. |
-| `GET` | `/api/users/:userId/notifications` | List notifications for a user. |
+| `GET` | `/api/users/:userId/notifications` | List notifications for a user (no auth required — for Android polling). |
 | `PATCH` | `/api/users/:userId/email` | Set or update the user's email address. |
+| `PATCH` | `/api/users/:userId/preferences` | Update display preferences (e.g. `show_app_name`). |
 
 ### Push Subscriptions
 
@@ -119,7 +134,9 @@ Optional fields on `POST /api/notifications`:
 
 ## Android Integration
 
-### Direct HTTP
+### Sending notifications
+
+Use the `userId` and `serverUrl` from the QR code scan (see [QR_CODE.md](QR_CODE.md)):
 
 ```java
 OkHttpClient client = new OkHttpClient();
@@ -132,18 +149,45 @@ Request request = new Request.Builder()
 client.newCall(request).enqueue(callback);
 ```
 
-### Firebase Cloud Messaging
+### Handling action replies from the web UI
 
-```javascript
-exports.forwardNotification = functions.messaging.onMessageReceived((message) => {
-  return axios.post('http://your-server-address/api/notifications', {
-    title: message.notification.title,
-    body: message.notification.body,
-    userId: message.data.userId,
-    actions: message.data.actions ? JSON.parse(message.data.actions) : []
-  });
-});
+When the user replies to or acts on a notification in the web interface, the action is saved back to the notification. The Android app should poll for pending actions and dispatch them (e.g. send a SMS reply, perform a system action).
+
+#### Poll for pending actions
+
 ```
+GET {serverUrl}/api/users/{userId}/notifications
+```
+
+Filter the response for notifications where `actionTaken` is set and `actionDispatched` is not `true`:
+
+```kotlin
+val pending = notifications.filter { n ->
+    n.actionTaken != null && n.actionDispatched != true
+}
+```
+
+Each pending notification contains:
+
+| Field | Description |
+|-------|-------------|
+| `id` | Notification ID |
+| `actionTaken` | The action key chosen by the user (e.g. `"reply"`) |
+| `actionResponse` | The typed reply text, if any |
+| `sourcePackage` | Android package name to route the action back (if supplied when sending) |
+
+#### Acknowledge dispatch
+
+After successfully dispatching an action, mark it as done so it isn't re-processed on the next poll:
+
+```
+POST {serverUrl}/api/notifications/{id}/actions/dispatched
+Content-Type: application/json
+
+{ "userId": "<guid>" }
+```
+
+Returns `{ "success": true }`. The notification's `actionDispatched` field is set to `true`. If the user takes a new action in the web UI later, `actionDispatched` is cleared automatically.
 
 ## Data Retention
 
@@ -153,5 +197,5 @@ Users inactive for **30 days** are automatically pruned at server startup and ev
 
 - Passwords are hashed with `scrypt` (Node built-in `crypto`) — no plaintext storage.
 - `password_hash` is never returned by any API endpoint.
-- VAPID keys are hardcoded in `server.js`. Rotating them requires clearing all stored push subscriptions.
+- VAPID keys are stored in `secrets.json` (gitignored). Rotating them requires clearing all stored push subscriptions.
 - For production, run behind HTTPS and consider adding rate limiting.
