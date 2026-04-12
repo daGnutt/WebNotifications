@@ -436,7 +436,7 @@ function connectSSE(userId) {
             disconnectSSE();
             const url = `/api/notifications/stream?userId=${encodeURIComponent(userId)}`;
             sseConnection = new EventSource(url);
-            sseConnection.addEventListener('update', () => fetchNotifications());
+            sseConnection.addEventListener('update', (e) => handleSSEUpdate(e));
             sseConnection.onerror = () => {
                 // EventSource auto-reconnects; also start a fallback poll in case SSE stays broken
                 if (!sseFallbackInterval) {
@@ -863,27 +863,63 @@ function connectSSE(userId) {
             tick();
         }
 
+        // ── SSE update routing ───────────────────────────────────────────────
+        async function handleSSEUpdate(e) {
+            let data = {};
+            try { data = JSON.parse(e.data); } catch {}
+
+            if (data.reason === 'delete' && data.id) {
+                const el = document.getElementById(`notification-${data.id}`);
+                if (el) await animateBackendRemoval(el, data.id);
+                // If card is already gone (we dismissed it locally), nothing to do
+            } else {
+                fetchNotifications();
+            }
+        }
+
+        // Animated removal for backend-initiated deletes:
+        // 1) breathe indicator red  2) card fades red  3) height collapses  4) element removed
+        function animateBackendRemoval(el, id) {
+            return new Promise(resolve => {
+                const indicator = document.getElementById('notification-indicator');
+                indicator.classList.remove('incoming', 'dismissing');
+                void indicator.offsetWidth;
+                indicator.classList.add('dismissing');
+                indicator.addEventListener('animationend', () => indicator.classList.remove('dismissing'), { once: true });
+
+                el.classList.add('notification-dismissing');
+                el.addEventListener('animationend', () => {
+                    // Smooth height collapse so remaining cards don't jump
+                    el.style.overflow = 'hidden';
+                    el.style.height = el.offsetHeight + 'px';
+                    el.style.transition = 'height 0.2s ease, margin-bottom 0.2s ease, padding 0.2s ease';
+                    void el.offsetHeight;
+                    el.style.height = '0';
+                    el.style.marginBottom = '0';
+                    el.style.paddingTop = '0';
+                    el.style.paddingBottom = '0';
+                    setTimeout(() => {
+                        el.remove();
+                        shownNotificationIds.delete(id);
+                        unreadCount = Math.max(0, unreadCount - 1);
+                        updateTitleWithCount();
+                        resolve();
+                    }, 200);
+                }, { once: true });
+            });
+        }
+
         async function dismissNotification(id) {
             const el = document.getElementById(`notification-${id}`);
             if (!el) return;
-
-            // Flash the top bar red
-            const indicator = document.getElementById('notification-indicator');
-            indicator.classList.remove('incoming', 'dismissing');
-            void indicator.offsetWidth; // reflow to restart animation
-            indicator.classList.add('dismissing');
-            indicator.addEventListener('animationend', () => indicator.classList.remove('dismissing'), { once: true });
-
-            // Slide the card out, then delete
-            el.classList.add('notification-dismissing');
-            el.addEventListener('animationend', async () => {
-                el.remove();
-                unreadCount--;
-                updateTitleWithCount();
-                try {
-                    await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
-                } catch (e) { console.error('Error dismissing notification:', e); }
-            }, { once: true });
+            // UI-initiated: instant removal, no animation
+            el.remove();
+            shownNotificationIds.delete(id);
+            unreadCount = Math.max(0, unreadCount - 1);
+            updateTitleWithCount();
+            try {
+                await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
+            } catch (e) { console.error('Error dismissing notification:', e); }
         }
 
         async function handleAction(notificationId, actionType, response) {
@@ -893,8 +929,11 @@ function connectSSE(userId) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ action: actionType, response, userId: currentUser.userId })
                 });
-                document.getElementById(`notification-${notificationId}`).remove();
-                unreadCount--;
+                // UI-initiated: instant removal, no animation
+                const el = document.getElementById(`notification-${notificationId}`);
+                if (el) el.remove();
+                shownNotificationIds.delete(notificationId);
+                unreadCount = Math.max(0, unreadCount - 1);
                 updateTitleWithCount();
             } catch (error) {
                 console.error('Error handling action:', error);
