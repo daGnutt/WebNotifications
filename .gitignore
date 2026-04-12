@@ -1,3 +1,4 @@
 /node_modules/*
 /notifications.db
 /secrets.json
+/package-lock.json
