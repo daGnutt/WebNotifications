@@ -166,23 +166,7 @@
             text-decoration: none;
         }
         .notification-intent a:hover { text-decoration: underline; }
-        .open-app-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 4px;
-            margin-top: 8px;
-            font-size: 11px;
-            color: var(--header-color);
-            text-decoration: none;
-            padding: 3px 8px;
-            border: 1px solid var(--border-color);
-            border-radius: 12px;
-            transition: color 0.15s, border-color 0.15s;
-        }
-        .open-app-link:hover {
-            color: #4CAF50;
-            border-color: #4CAF50;
-        }
+
         .no-notifications {
             text-align: center;
             color: var(--header-color);
@@ -734,7 +718,6 @@ function connectSSE(userId) {
                         </div>
                         <div class="notification-body">${notification.body || ''}</div>
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
-                        ${notification.sourcePackage ? `<a class="open-app-link" href="intent://#Intent;package=${notification.sourcePackage};action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;end">📲 Open app</a>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
                     </div>
                 </div>
