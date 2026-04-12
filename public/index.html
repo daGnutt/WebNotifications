@@ -172,6 +172,62 @@
         }
         .notification-intent a:hover { text-decoration: underline; }
 
+        /* Conversation thread (data.messages) */
+        .message-thread {
+            display: flex;
+            flex-direction: column;
+            gap: 3px;
+            margin: 4px 0 8px;
+        }
+        .message {
+            display: flex;
+            align-items: flex-end;
+            gap: 6px;
+        }
+        .message.self { flex-direction: row-reverse; }
+        .message.first-in-group { margin-top: 8px; }
+        .message.first-in-group:first-child { margin-top: 0; }
+        .message-avatar {
+            width: 26px;
+            height: 26px;
+            border-radius: 50%;
+            object-fit: cover;
+            flex-shrink: 0;
+            align-self: flex-end;
+        }
+        .message-avatar-initials {
+            background: var(--border-color);
+            color: var(--header-color);
+            font-size: 11px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .message-avatar-spacer { width: 26px; flex-shrink: 0; }
+        .message-bubble {
+            max-width: 72%;
+            padding: 6px 10px;
+            border-radius: 14px;
+            background: var(--border-color);
+            color: var(--text-color);
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        .message.self .message-bubble {
+            background: var(--action-bg);
+            color: white;
+        }
+        .message-sender {
+            font-size: 11px;
+            font-weight: 600;
+            color: var(--header-color);
+        }
+        .message-text { font-size: 14px; word-break: break-word; white-space: pre-wrap; }
+        .message-time { font-size: 10px; color: var(--header-color); align-self: flex-end; }
+        .message.self .message-time { color: rgba(255,255,255,0.7); }
+
         .no-notifications {
             text-align: center;
             color: var(--header-color);
@@ -721,7 +777,7 @@ function connectSSE(userId) {
                             </div>
                             <div class="notification-time" data-timestamp="${notification.timestamp}">${relativeTime(notification.timestamp)}</div>
                         </div>
-                        <div class="notification-body">${notification.body || ''}</div>
+                        ${notification.data?.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${notification.body || ''}</div>`}
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
                     </div>
@@ -777,6 +833,60 @@ function connectSSE(userId) {
             });
 
             return `<div class="notification-actions">${parts.join('')}</div>`;
+        }
+
+        function escapeHtml(str) {
+            if (!str) return '';
+            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function normalizeSenderIcon(icon) {
+            if (!icon) return null;
+            if (icon.startsWith('data:') || icon.startsWith('http://') || icon.startsWith('https://')) return icon;
+            return `data:image/png;base64,${icon}`;
+        }
+
+        function renderMessages(notification) {
+            const messages = notification.data?.messages;
+            if (!messages?.length) return '';
+
+            const parts = messages.map((msg, i) => {
+                const isSelf = !msg.sender;
+                const isFirstInGroup = i === 0 || messages[i - 1].sender !== msg.sender;
+                const classes = ['message'];
+                if (isSelf) classes.push('self');
+                if (isFirstInGroup) classes.push('first-in-group');
+
+                let avatarHtml = '';
+                if (!isSelf) {
+                    if (isFirstInGroup) {
+                        const iconSrc = normalizeSenderIcon(msg.senderIcon);
+                        avatarHtml = iconSrc
+                            ? `<img class="message-avatar" src="${iconSrc}" alt="" onerror="this.style.display='none'">`
+                            : `<div class="message-avatar message-avatar-initials">${escapeHtml((msg.sender || '?')[0].toUpperCase())}</div>`;
+                    } else {
+                        avatarHtml = `<div class="message-avatar-spacer"></div>`;
+                    }
+                }
+
+                const senderHtml = !isSelf && isFirstInGroup && msg.sender
+                    ? `<span class="message-sender">${escapeHtml(msg.sender)}</span>` : '';
+
+                const timeHtml = msg.timestamp
+                    ? `<span class="message-time">${relativeTime(msg.timestamp)}</span>` : '';
+
+                return `
+                    <div class="${classes.join(' ')}">
+                        ${avatarHtml}
+                        <div class="message-bubble">
+                            ${senderHtml}
+                            <span class="message-text">${escapeHtml(msg.text)}</span>
+                            ${timeHtml}
+                        </div>
+                    </div>`;
+            });
+
+            return `<div class="message-thread">${parts.join('')}</div>`;
         }
 
         function relativeTime(timestamp) {
