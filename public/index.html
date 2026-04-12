@@ -950,47 +950,61 @@ function connectSSE(userId) {
             ctx.arc(16, 16, 16, 0, 2 * Math.PI);
             ctx.fill();
 
-            // Draw bell with optional tilt around its base centre
+            // Draw bullhorn with optional tilt/wobble around its centre
             ctx.save();
-            ctx.translate(16, 22);
+            ctx.translate(13, 16);
             ctx.rotate(tilt);
-            ctx.translate(-16, -22);
+            ctx.translate(-13, -16);
 
             ctx.fillStyle = 'white';
-            ctx.beginPath();
-            ctx.ellipse(16, 7.5, 2.5, 1.5, 0, 0, 2 * Math.PI);
-            ctx.fill();
 
+            // Cone body (trapezoid — narrow left, wide right)
             ctx.beginPath();
-            ctx.moveTo(9, 21);
-            ctx.lineTo(9.8, 19.5);
-            ctx.lineTo(10, 19);
-            ctx.lineTo(10, 13.5);
-            ctx.bezierCurveTo(10, 9.9, 12.7, 7, 16, 7);
-            ctx.bezierCurveTo(19.3, 7, 22, 9.9, 22, 13.5);
-            ctx.lineTo(22, 19);
-            ctx.lineTo(22.2, 19.5);
-            ctx.lineTo(23, 21);
+            ctx.moveTo(7, 14);
+            ctx.lineTo(7, 18);
+            ctx.lineTo(17, 22);
+            ctx.lineTo(17, 10);
             ctx.closePath();
             ctx.fill();
 
+            // Mouthpiece (left cap)
             ctx.beginPath();
-            ctx.ellipse(16, 22.5, 2.5, 2, 0, 0, 2 * Math.PI);
+            ctx.roundRect(4, 14, 4, 4, 1);
             ctx.fill();
+
+            // Handle (below cone)
+            ctx.beginPath();
+            ctx.moveTo(8, 18);
+            ctx.lineTo(11, 25);
+            ctx.lineTo(13, 25);
+            ctx.lineTo(10, 18);
+            ctx.closePath();
+            ctx.fill();
+
+            // WiFi arcs radiating from the wide (right) end of the cone
+            ctx.strokeStyle = 'white';
+            ctx.lineWidth = 1.5;
+            ctx.lineCap = 'round';
+            const sweep = Math.PI * 0.45;
+            [3.5, 5.5, 7.5].forEach(r => {
+                ctx.beginPath();
+                ctx.arc(17, 16, r, -sweep, sweep);
+                ctx.stroke();
+            });
 
             ctx.restore();
 
             if (count > 0) {
                 ctx.fillStyle = '#f44336';
                 ctx.beginPath();
-                ctx.arc(23, 9, 7, 0, 2 * Math.PI);
+                ctx.arc(24, 8, 7, 0, 2 * Math.PI);
                 ctx.fill();
 
                 ctx.fillStyle = 'white';
                 ctx.font = 'bold 8px Arial';
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-                ctx.fillText(count > 9 ? '9+' : String(count), 23, 9);
+                ctx.fillText(count > 9 ? '9+' : String(count), 24, 8);
             }
 
             const link = document.querySelector("link[rel~='icon']");

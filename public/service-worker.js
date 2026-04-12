@@ -1,5 +1,5 @@
 // Service Worker for Web Notifications
-const CACHE_NAME = 'web-notifications-v3';
+const CACHE_NAME = 'web-notifications-v4';
 const ASSETS_TO_CACHE = [
   '/',
   '/index.html',
