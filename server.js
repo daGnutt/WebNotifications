@@ -498,10 +498,42 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
     try { data = JSON.parse(row.data); } catch (e) {}
     data.actionTaken = action;
     data.actionResponse = response;
+    delete data.actionDispatched;
 
     db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
       if (updateErr) console.error('Error updating notification action:', updateErr.message);
       broadcastToUser(req.user.user_id, 'update', { reason: 'action', id });
+      res.status(200).json({ success: true });
+    });
+  });
+});
+
+// API Endpoint for the Android endpoint app to acknowledge it has dispatched an action.
+// Call this after successfully sending the reply/action so subsequent polls ignore it.
+app.post('/api/notifications/:id/actions/dispatched', (req, res) => {
+  const id = req.params.id;
+  const userId = req.body.userId || req.query.userId;
+
+  db.get('SELECT * FROM notifications WHERE id = ?', [id], (err, row) => {
+    if (err || !row) {
+      return res.status(404).json({ success: false, error: 'Notification not found' });
+    }
+
+    let data = {};
+    try { data = JSON.parse(row.data); } catch (e) {}
+
+    if (!data.actionTaken) {
+      return res.status(400).json({ success: false, error: 'No action to acknowledge' });
+    }
+
+    data.actionDispatched = true;
+
+    db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
+      if (updateErr) {
+        console.error('Error acknowledging action dispatch:', updateErr.message);
+        return res.status(500).json({ success: false, error: 'Database error' });
+      }
+      if (userId) broadcastToUser(userId, 'update', { reason: 'action', id });
       res.status(200).json({ success: true });
     });
   });
