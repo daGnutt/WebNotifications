@@ -1,4 +1,5 @@
 // Web Notifications Server
+const http = require('http');
 const express = require('express');
 const bodyParser = require('body-parser');
 const cors = require('cors');
@@ -647,7 +648,8 @@ function pruneInactiveUsers() {
 pruneInactiveUsers();
 setInterval(pruneInactiveUsers, 24 * 60 * 60 * 1000);
 
-// Start server
-app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+// Start server — bind to :: with ipv6Only:false for dual-stack (IPv4 + IPv6)
+const server = http.createServer(app);
+server.listen({ port: PORT, host: '::', ipv6Only: false }, () => {
+  console.log(`Server running on port ${PORT} (IPv4 + IPv6)`);
 });
