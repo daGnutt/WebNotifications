@@ -100,16 +100,28 @@
         }
         .notification-actions {
             display: flex;
-            gap: 10px;
+            flex-wrap: wrap;
+            gap: 8px;
             margin-top: 10px;
         }
         .action-button {
-            padding: 5px 10px;
+            padding: 5px 12px;
             background-color: var(--action-bg);
             color: white;
             border: none;
             border-radius: 4px;
             cursor: pointer;
+            font-size: 13px;
+        }
+        .action-button:hover { filter: brightness(1.12); }
+        .action-button.semantic-neutral {
+            background-color: var(--border-color);
+            color: var(--text-color);
+        }
+        .reply-row {
+            display: flex;
+            flex: 0 0 100%;
+            gap: 8px;
         }
         .close-button {
             position: absolute;
@@ -698,18 +710,54 @@ function connectSSE(userId) {
             `).join('');
         }
 
+        // Semantic action codes from Android's NotificationCompat.Action
+        const SEMANTIC_ICONS = {
+            1: '↩',   // reply
+            2: '✓',   // mark as read
+            3: '✉',   // mark as unread
+            4: '🗑',  // delete
+            5: '📁',  // archive
+            6: '🔇',  // mute
+            7: '🔊',  // unmute
+            8: '👍',  // thumbs up
+            9: '👎',  // thumbs down
+           10: '📞',  // call
+        };
+        // Neutral (non-green) styling for destructive/passive semantics
+        const SEMANTIC_NEUTRAL = new Set([4, 6, 9]);
+
+        function isReplyAction(action) {
+            return action.semanticAction === 1 || action.type === 'reply';
+        }
+
+        function actionKey(action) {
+            return action.semanticAction != null ? action.semanticAction : (action.type || 'action');
+        }
+
         function renderActions(notification) {
             if (!notification.actions || notification.actions.length === 0) return '';
-            return `
-                <div class="notification-actions">
-                    ${notification.actions.map(action => `
-                        ${action.type === 'reply'
-                            ? `<input type="text" class="reply-input" id="reply-${notification.id}" placeholder="Reply...">
-                               <button class="action-button" onclick="handleAction('${notification.id}', '${action.type}', document.getElementById('reply-${notification.id}').value)">Send</button>`
-                            : `<button class="action-button" onclick="handleAction('${notification.id}', '${action.type}')">${action.title}</button>`}
-                    `).join('')}
-                </div>
-            `;
+            const nid = notification.id;
+
+            const parts = notification.actions.map((action, i) => {
+                if (isReplyAction(action)) {
+                    const ph = (action.title || 'Reply…').replace(/"/g, '&quot;');
+                    const key = actionKey(action);
+                    return `
+                        <div class="reply-row">
+                            <input type="text" class="reply-input" id="reply-${nid}-${i}" placeholder="${ph}"
+                                   onkeydown="if(event.key==='Enter') handleAction('${nid}', '${key}', document.getElementById('reply-${nid}-${i}').value)">
+                            <button class="action-button" onclick="handleAction('${nid}', '${key}', document.getElementById('reply-${nid}-${i}').value)">↩ Send</button>
+                        </div>`;
+                }
+                const icon  = SEMANTIC_ICONS[action.semanticAction] || '';
+                const title = action.title || '';
+                const label = icon && title ? `${icon} ${title}` : (icon || title || 'Action');
+                const neutral = SEMANTIC_NEUTRAL.has(action.semanticAction) ? ' semantic-neutral' : '';
+                const key = actionKey(action);
+                return `<button class="action-button${neutral}" onclick="handleAction('${nid}', '${key}')">${label}</button>`;
+            });
+
+            return `<div class="notification-actions">${parts.join('')}</div>`;
         }
 
         function relativeTime(timestamp) {
