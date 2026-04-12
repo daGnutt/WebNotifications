@@ -30,7 +30,8 @@ Android device / curl
 
 **Data flow for incoming notifications:**
 1. A POST to `/api/notifications` stores the notification in SQLite (with optional `userId`) and immediately fans out web-push messages to all matching `push_subscriptions`.
-2. The frontend polls `/api/notifications` every 5 seconds; it also receives push notifications via the service worker when no page is open.
+2. If the notification has no `title` **and** no `body`, it is silently dropped (returns `200 { success: true, ignored: true }`) without storing or broadcasting.
+3. The server pushes an SSE `update` event to connected browser tabs via `GET /api/notifications/stream`; tabs also receive web-push notifications via the service worker when no tab is open.
 
 **User management flow:**
 - `POST /api/auth` is the single sign-in/register endpoint — it creates the user on first call, verifies password on subsequent calls.
@@ -48,9 +49,21 @@ Android device / curl
 - Subscriptions are stored with an optional `user_id`. When sending, if a `userId` is supplied the push goes only to that user's subscriptions; otherwise it broadcasts to all.
 - The frontend passes `userId` inside the subscription payload to `POST /api/subscribe`.
 
+**SSE real-time push:**
+- `GET /api/notifications/stream` (protected by `requireUserId`) opens a persistent `text/event-stream` connection.
+- The server holds open connections in a `sseClients` Map keyed by `user_id`. A 25s `:ping` comment is sent periodically to prevent proxy timeouts.
+- `broadcastToUser(userId, payload)` is called after every mutation (new notification, delete, action update) and sends `event: update\ndata: {...}\n\n`.
+- The frontend listens with `EventSource`, calls `fetchNotifications()` on each `update` event, and falls back to a 30-second poll on SSE error.
+
 **Service worker behaviour:**
-- Push notifications are only shown by the service worker when **no** browser tab is open. If a tab is open, the page relies on its 5-second poll instead.
+- Push notifications are only shown by the service worker when **no** browser tab is open. If a tab is open, the SSE stream handles real-time updates instead.
 - Cache version is currently `web-notifications-v3`. Bump it in `service-worker.js` whenever any cached asset changes, otherwise normal reloads serve stale content.
+
+**QR code configuration:**
+- A "QR Code" button appears in the user bar once logged in.
+- Clicking it opens a modal with a QR code encoding `{ "serverUrl": "http://...", "userId": "uuid" }` — intentionally no username or password.
+- The QR code is rendered by `qrcodejs@1.0.0` served locally from `public/qrcode.min.js` (API: `new QRCode(domElement, { text, width, height, correctLevel })`).
+- See `QR_CODE.md` for the full payload specification and client implementation guidance.
 
 **Frontend animations:**
 - `initialLoadDone` flag (set after first successful render, reset on logout): prevents the 2-second notification delay on page load/reload; new arrivals during a live session get the delay.
@@ -66,3 +79,5 @@ Android device / curl
 - **VAPID keys are hardcoded** in `server.js`. Do not rotate them without also clearing all stored `push_subscriptions`, as existing browser subscriptions will become invalid.
 - **DB migrations** are handled inline in `initializeDatabase()` using `ALTER TABLE … ADD COLUMN` wrapped in a no-op callback to silently ignore "duplicate column" errors on existing databases.
 - **No framework on the frontend** — plain JS with `fetch`. Keep it that way; do not introduce bundlers or npm-managed frontend dependencies.
+- **uuid must stay at `^9.0.0`** — uuid v10+ is ESM-only and breaks `require()` in this CommonJS server. Do not upgrade.
+- **Dual-stack binding** — the server uses `http.createServer(app)` + `server.listen({ host: '::', ipv6Only: false })` to accept both IPv4 and IPv6 connections on a single socket. Do not switch back to `app.listen()`.
