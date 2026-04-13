@@ -258,6 +258,29 @@
         .message-time { font-size: 10px; color: var(--header-color); align-self: flex-end; }
         .message.self .message-time { color: rgba(255,255,255,0.7); }
 
+        .sent-reply {
+            display: flex;
+            flex-direction: row-reverse;
+            margin-top: 6px;
+        }
+        .sent-reply-bubble {
+            max-width: 72%;
+            padding: 6px 10px;
+            border-radius: 14px;
+            background: var(--action-bg);
+            color: white;
+            font-size: 14px;
+            word-break: break-word;
+            white-space: pre-wrap;
+            opacity: 0.7;
+        }
+        .sent-reply-label {
+            display: block;
+            font-size: 10px;
+            color: rgba(255,255,255,0.65);
+            margin-bottom: 2px;
+        }
+
         .no-notifications {
             text-align: center;
             color: var(--header-color);
@@ -809,6 +832,7 @@ function connectSSE(userId) {
                             <div class="notification-time" data-timestamp="${notification.timestamp}">${relativeTime(notification.timestamp)}</div>
                         </div>
                         ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${notification.body || ''}</div>`}
+                        ${renderSentAction(notification)}
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
                     </div>
@@ -859,6 +883,18 @@ function connectSSE(userId) {
 
         function actionKey(action) {
             return action.semanticAction != null ? action.semanticAction : (action.type || 'action');
+        }
+
+        function renderSentAction(notification) {
+            const { actionTaken, actionResponse } = notification;
+            if (!actionTaken) return '';
+            const icon = SEMANTIC_ICONS[actionTaken] ?? '';
+            if (actionResponse) {
+                return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">↩ You replied</span>${escapeHtml(actionResponse)}</div></div>`;
+            }
+            // Non-reply action (e.g. like, mark-as-read) — show the action label
+            const label = icon ? `${icon} ${escapeHtml(String(actionTaken))}` : escapeHtml(String(actionTaken));
+            return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">✓ Action taken</span>${label}</div></div>`;
         }
 
         function renderActions(notification) {
