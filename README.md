@@ -107,6 +107,7 @@ Optional fields on `POST /api/notifications`:
   "icon":          "optional — URL, data URI, or raw base64 image",
   "appName":       "optional — source app display name",
   "sourcePackage": "optional — Android package name (e.g. com.example.app)",
+  "isSilent":      "optional — true if the notification has no sound/vibration",
   "actions": [
     { "type": "reply",   "title": "Reply" },
     { "type": "action1", "title": "Approve" }

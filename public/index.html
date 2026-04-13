@@ -60,6 +60,25 @@
             pointer-events: none;
             cursor: default;
         }
+        .notification.notification-silent {
+            opacity: 0.6;
+            border-style: dashed;
+        }
+        .notifications-section-header {
+            font-size: 11px;
+            color: var(--header-color);
+            text-align: center;
+            margin: 6px 0 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .notifications-section-header::before,
+        .notifications-section-header::after {
+            content: '';
+            flex: 1;
+            border-top: 1px solid var(--border-color);
+        }
         .notification-content {
             flex: 1;
             min-width: 0;
@@ -769,14 +788,11 @@ function connectSSE(userId) {
             document.getElementById('notification-indicator').classList.remove('incoming');
         }
 
-        function displayNotifications(notifications, newIds = new Set()) {
-            const container = document.getElementById('notifications-container');
-            if (notifications.length === 0) {
-                container.innerHTML = '<div class="no-notifications">No active notifications</div>';
-                return;
-            }
-            container.innerHTML = notifications.map(notification => `
-                <div class="notification${newIds.has(notification.id) ? ' notification-new' : ''}"
+        function renderNotificationCard(notification, newIds) {
+            const isNew = newIds.has(notification.id);
+            const isSilent = notification.isSilent === true;
+            return `
+                <div class="notification${isNew ? ' notification-new' : ''}${isSilent ? ' notification-silent' : ''}"
                      id="notification-${notification.id}">
                     ${notification.icon ? `<img class="notification-icon" src="${notification.icon}" alt="" onerror="this.style.display='none'">` : ''}
                     <button class="close-button" onclick="dismissNotification('${notification.id}')" title="Dismiss">&#x2715;</button>
@@ -792,8 +808,29 @@ function connectSSE(userId) {
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
                     </div>
-                </div>
-            `).join('');
+                </div>`;
+        }
+
+        function displayNotifications(notifications, newIds = new Set()) {
+            const container = document.getElementById('notifications-container');
+            if (notifications.length === 0) {
+                container.innerHTML = '<div class="no-notifications">No active notifications</div>';
+                return;
+            }
+
+            const normal = notifications.filter(n => !n.isSilent);
+            const silent = notifications.filter(n => n.isSilent === true);
+
+            let html = normal.map(n => renderNotificationCard(n, newIds)).join('');
+
+            if (silent.length > 0) {
+                if (normal.length > 0) {
+                    html += `<div class="notifications-section-header">🔇 Silent</div>`;
+                }
+                html += silent.map(n => renderNotificationCard(n, newIds)).join('');
+            }
+
+            container.innerHTML = html;
         }
 
         // Semantic action codes from Android's NotificationCompat.Action

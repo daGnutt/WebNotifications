@@ -112,12 +112,16 @@ Retrieve all notifications for the authenticated user, ordered newest first.
   "title": "Example",
   "body": "Notification body text",
   "timestamp": "2024-04-11T20:00:00.000Z",
+  "appName": "Messages",
+  "sourcePackage": "com.example.app",
+  "isSilent": false,
   "actionTaken": "reply",
   "actionResponse": "OK"
 }
 ```
 
 > `actionTaken` and `actionResponse` are only present if an action was recorded via `POST /api/notifications/:id/actions`.
+> `isSilent` is only present if it was included in the original POST payload.
 
 **Conversation thread (`data.messages`)**
 
@@ -168,13 +172,19 @@ Store a new notification and immediately fan out web-push messages to all push s
 
 **Request body**
 
-| Field       | Type   | Required | Description                                   |
-|-------------|--------|----------|-----------------------------------------------|
-| `userId`    | string | Yes      | User UUID                                     |
-| `title`     | string | No       | Notification title                            |
-| `body`      | string | No       | Notification body text                        |
-| `timestamp` | string | No       | ISO 8601 timestamp (auto-set if omitted)      |
-| `...`       | any    | No       | Any additional fields are stored in `data`    |
+| Field           | Type    | Required | Description                                                                                      |
+|-----------------|---------|----------|--------------------------------------------------------------------------------------------------|
+| `userId`        | string  | Yes      | User UUID                                                                                        |
+| `title`         | string  | No       | Notification title                                                                               |
+| `body`          | string  | No       | Notification body text                                                                           |
+| `timestamp`     | string  | No       | ISO 8601 timestamp (auto-set if omitted)                                                         |
+| `sourcePackage` | string  | No       | Android package name of the source app                                                           |
+| `appName`       | string  | No       | Human-readable name of the source app                                                            |
+| `icon`          | string  | No       | Base64-encoded PNG app icon                                                                      |
+| `isSilent`      | boolean | No       | `true` if the notification channel importance is below `IMPORTANCE_DEFAULT` (no sound/vibration) |
+| `actions`       | array   | No       | List of `{ semanticAction, title }` action objects                                               |
+| `messages`      | array   | No       | MessagingStyle messages: `{ sender?, text, timestamp, senderIcon? }`                             |
+| `...`           | any     | No       | Any additional fields are stored in `data`                                                       |
 
 **Responses**
 
