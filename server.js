@@ -227,10 +227,6 @@ function updateUserLastActive(userId, callback) {
   });
 }
 
-function getAllUsers(callback) {
-  db.all('SELECT * FROM users', callback);
-}
-
 function deleteNotification(id, callback) {
   db.run('DELETE FROM notifications WHERE id = ?', [id], function(err) {
     if (err) console.error('Error deleting notification:', err.message);
@@ -583,10 +579,11 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
   const id = req.params.id;
   const action = req.body.action;
   const response = req.body.response;
+  const userId = req.user.user_id;
 
   console.log(`Action '${action}' performed on notification ${id} with response:`, response);
 
-  db.get('SELECT * FROM notifications WHERE id = ?', [id], (err, row) => {
+  db.get('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
     if (err || !row) {
       return res.status(404).json({ success: false, error: 'Notification not found' });
     }
@@ -612,11 +609,11 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
 
 // API Endpoint for the Android endpoint app to acknowledge it has dispatched an action.
 // Call this after successfully sending the reply/action so subsequent polls ignore it.
-app.post('/api/notifications/:id/actions/dispatched', (req, res) => {
+app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) => {
   const id = req.params.id;
-  const userId = req.body.userId || req.query.userId;
+  const userId = req.user.user_id;
 
-  db.get('SELECT * FROM notifications WHERE id = ?', [id], (err, row) => {
+  db.get('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
     if (err || !row) {
       return res.status(404).json({ success: false, error: 'Notification not found' });
     }
@@ -635,7 +632,7 @@ app.post('/api/notifications/:id/actions/dispatched', (req, res) => {
         console.error('Error acknowledging action dispatch:', updateErr.message);
         return res.status(500).json({ success: false, error: 'Database error' });
       }
-      if (userId) broadcastToUser(userId, 'update', { reason: 'action', id });
+      broadcastToUser(userId, 'update', { reason: 'action', id });
       res.status(200).json({ success: true });
     });
   });
@@ -767,35 +764,13 @@ app.post('/api/auth/reset-confirm', (req, res) => {
   });
 });
 
-app.post('/api/users', async (req, res) => {
-  const { username, password, email } = req.body;
-  if (!username || !password) {
-    return res.status(400).json({ success: false, error: 'username and password are required' });
+
+app.patch('/api/users/:userId/email', requireUserId, (req, res) => {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
   }
-  createUser(username, password, email, (err, user) => {
-    if (err) {
-      if (err.message && err.message.includes('UNIQUE')) {
-        return res.status(409).json({ success: false, error: 'Username already exists' });
-      }
-      return res.status(500).json({ success: false, error: 'Failed to create user' });
-    }
-    res.status(201).json({ success: true, user });
-  });
-});
-
-app.get('/api/users', (req, res) => {
-  getAllUsers((err, rows) => {
-    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch users' });
-    res.status(200).json(rows.map(({ password_hash, user_id, ...u }) => ({
-      guid: user_id,
-      ...u
-    })));
-  });
-});
-
-app.patch('/api/users/:userId/email', (req, res) => {
   const { email } = req.body;
-  db.run('UPDATE users SET email = ? WHERE user_id = ?', [email || null, req.params.userId], function(err) {
+  db.run('UPDATE users SET email = ? WHERE user_id = ?', [email || null, req.user.user_id], function(err) {
     if (err) return res.status(500).json({ success: false, error: 'Failed to update email' });
     if (this.changes === 0) return res.status(404).json({ success: false, error: 'User not found' });
     res.status(200).json({ success: true });
@@ -812,26 +787,20 @@ app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
   );
 });
 
-app.get('/api/users/by-username/:username', (req, res) => {
-  getUserByUsername(req.params.username, (err, user) => {
-    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch user' });
-    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-    res.status(200).json(user);
-  });
+app.get('/api/users/:userId', requireUserId, (req, res) => {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  updateUserLastActive(req.user.user_id, () => {});
+  const { password_hash, ...safeUser } = req.user;
+  res.status(200).json(safeUser);
 });
 
-app.get('/api/users/:userId', (req, res) => {
-  getUserById(req.params.userId, (err, user) => {
-    if (err) return res.status(500).json({ success: false, error: 'Failed to fetch user' });
-    if (!user) return res.status(404).json({ success: false, error: 'User not found' });
-    updateUserLastActive(user.user_id, () => {});
-    const { password_hash, ...safeUser } = user;
-    res.status(200).json(safeUser);
-  });
-});
-
-app.get('/api/users/:userId/notifications', (req, res) => {
-  getAllNotifications(req.params.userId, (err, rows) => {
+app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  getAllNotifications(req.user.user_id, (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
     const notifications = rows.map(row => {
       try { return JSON.parse(row.data); } catch (e) {

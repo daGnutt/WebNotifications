@@ -607,7 +607,7 @@ function connectSSE(userId) {
             const res = await fetch(`/api/users/${currentUser.userId}/email`, {
                 method: 'PATCH',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ email })
+                body: JSON.stringify({ email, userId: currentUser.userId })
             });
             if (!res.ok) { const d = await res.json(); return alert(d.error || 'Failed to save email.'); }
             hideEmailEdit();
@@ -658,7 +658,7 @@ function connectSSE(userId) {
                 try {
                     const user = JSON.parse(saved);
                     // Verify user still exists and fetch fresh preferences
-                    fetch(`/api/users/${user.userId}`)
+                    fetch(`/api/users/${user.userId}?userId=${encodeURIComponent(user.userId)}`)
                         .then(async r => {
                             if (!r.ok) return logout();
                             const fetched = await r.json();

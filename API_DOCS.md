@@ -224,7 +224,7 @@ Delete a notification. Only the owning user can delete their own notifications.
 
 #### `POST /api/notifications/:id/actions`
 
-Record the action taken on a notification (e.g. a reply or button tap). Updates the `actionTaken` and `actionResponse` fields on the stored notification.
+Record the action taken on a notification (e.g. a reply or button tap). Updates the `actionTaken` and `actionResponse` fields on the stored notification. Only the owning user can record an action on their own notification.
 
 **Path parameters**
 
@@ -247,6 +247,34 @@ Record the action taken on a notification (e.g. a reply or button tap). Updates 
 | `200`  | Action recorded           | `{ success: true }`             |
 | `401`  | Missing/invalid userId    | `{ success: false, error }`     |
 | `404`  | Notification not found    | `{ success: false, error }`     |
+
+---
+
+#### `POST /api/notifications/:id/actions/dispatched`
+
+Acknowledge that the Android app has successfully dispatched the recorded action. Sets `actionDispatched: true` on the notification so subsequent polls know the action has been handled. Only the owning user can acknowledge their own notification.
+
+**Path parameters**
+
+| Parameter | Description     |
+|-----------|-----------------|
+| `id`      | Notification ID |
+
+**Request body**
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| `userId` | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description                    | Body                            |
+|--------|--------------------------------|---------------------------------|
+| `200`  | Acknowledged                   | `{ success: true }`             |
+| `400`  | No action recorded to ack      | `{ success: false, error }`     |
+| `401`  | Missing/invalid userId         | `{ success: false, error }`     |
+| `404`  | Notification not found         | `{ success: false, error }`     |
+| `500`  | Server error                   | `{ success: false, error }`     |
 
 ---
 
@@ -351,101 +379,68 @@ Create and immediately push a notification. Identical to `POST /api/notification
 
 ### Users
 
-#### `GET /api/users`
-
-List all users. **Password hashes and internal user IDs are excluded from the response.**
-
-**No authentication required.**
-
-**Responses**
-
-| Status | Body                                                  |
-|--------|-------------------------------------------------------|
-| `200`  | Array of `{ guid, username, email, created_at, last_active }` |
-
----
-
-#### `POST /api/users`
-
-Create a new user directly (alternative to `POST /api/auth`). Returns `409` if the username is already taken.
-
-**Request body**
-
-| Field      | Type   | Required | Description         |
-|------------|--------|----------|---------------------|
-| `username` | string | Yes      | Unique username     |
-| `password` | string | Yes      | Plain-text password |
-| `email`    | string | No       | Email address       |
-
-**Responses**
-
-| Status | Description           | Body                                        |
-|--------|-----------------------|---------------------------------------------|
-| `201`  | User created          | `{ success: true, user: { userId, username, email } }` |
-| `400`  | Missing fields        | `{ success: false, error }`                 |
-| `409`  | Username already taken | `{ success: false, error }`                |
-| `500`  | Server error          | `{ success: false, error }`                 |
-
----
-
 #### `GET /api/users/:userId`
 
-Get a single user by their UUID. Updates `last_active` on each call. **Password hash is excluded.**
+Get the authenticated user's own profile. Updates `last_active` on each call. **Password hash is excluded.**
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | User UUID   |
 
 **Responses**
 
-| Status | Description      | Body                                                    |
-|--------|------------------|---------------------------------------------------------|
-| `200`  | Success          | `{ user_id, username, email, created_at, last_active }` |
-| `404`  | User not found   | `{ success: false, error }`                             |
-| `500`  | Server error     | `{ success: false, error }`                             |
-
----
-
-#### `GET /api/users/by-username/:username`
-
-Look up a user by username.
-
-**Responses**
-
-| Status | Description     | Body                                                    |
-|--------|-----------------|---------------------------------------------------------|
-| `200`  | Success         | `{ user_id, username, email, created_at, last_active }` |
-| `404`  | User not found  | `{ success: false, error }`                             |
-| `500`  | Server error    | `{ success: false, error }`                             |
-
----
-
-#### `PATCH /api/users/:userId/email`
-
-Update the email address for a user.
-
-**Request body**
-
-| Field   | Type   | Required | Description                              |
-|---------|--------|----------|------------------------------------------|
-| `email` | string | No       | New email address. Omit or set to `null` to clear. |
-
-**Responses**
-
-| Status | Description      | Body                        |
-|--------|------------------|-----------------------------|
-| `200`  | Updated          | `{ success: true }`         |
-| `404`  | User not found   | `{ success: false, error }` |
-| `500`  | Server error     | `{ success: false, error }` |
+| Status | Description              | Body                                                    |
+|--------|--------------------------|---------------------------------------------------------|
+| `200`  | Success                  | `{ user_id, username, email, created_at, last_active }` |
+| `401`  | Missing/invalid userId   | `{ success: false, error }`                             |
+| `403`  | Forbidden (wrong user)   | `{ success: false, error }`                             |
+| `500`  | Server error             | `{ success: false, error }`                             |
 
 ---
 
 #### `GET /api/users/:userId/notifications`
 
-Get all notifications for a specific user. Does **not** require the `requireUserId` middleware — the path parameter is used directly.
+Get all notifications for the authenticated user. The path `:userId` must match the authenticated `userId`.
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | User UUID   |
 
 **Responses**
 
-| Status | Description    | Body                          |
-|--------|----------------|-------------------------------|
-| `200`  | Success        | Array of notification objects |
-| `500`  | Server error   | `{ success: false, error }`   |
+| Status | Description              | Body                          |
+|--------|--------------------------|-------------------------------|
+| `200`  | Success                  | Array of notification objects |
+| `401`  | Missing/invalid userId   | `{ success: false, error }`   |
+| `403`  | Forbidden (wrong user)   | `{ success: false, error }`   |
+| `500`  | Server error             | `{ success: false, error }`   |
+
+---
+
+#### `PATCH /api/users/:userId/email`
+
+Update the email address for the authenticated user. The path `:userId` must match the authenticated `userId`.
+
+**Request body**
+
+| Field    | Type   | Required | Description                              |
+|----------|--------|----------|------------------------------------------|
+| `userId` | string | Yes      | User UUID                                |
+| `email`  | string | No       | New email address. Omit or set to `null` to clear. |
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | Updated                  | `{ success: true }`         |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+| `403`  | Forbidden (wrong user)   | `{ success: false, error }` |
+| `404`  | User not found           | `{ success: false, error }` |
+| `500`  | Server error             | `{ success: false, error }` |
 
 ---
 
