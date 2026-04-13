@@ -57,7 +57,7 @@ Android device / curl
 
 **Service worker behaviour:**
 - Push notifications are only shown by the service worker when **no** browser tab is open. If a tab is open, the SSE stream handles real-time updates instead.
-- Cache version is currently `web-notifications-v3`. Bump it in `service-worker.js` whenever any cached asset changes, otherwise normal reloads serve stale content.
+- **Service worker cache strategy** — `index.html`/`/` use network-first (always fresh on reload); truly static assets (`manifest.json`, `favicon.svg`, `qrcode.min.js`) use cache-first. API calls bypass the SW cache entirely. Cache name is currently `web-notifications-v5`; bump it in `service-worker.js` whenever any cached static asset changes.
 
 **QR code configuration:**
 - A "QR Code" button appears in the user bar once logged in.
