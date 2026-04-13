@@ -15,6 +15,30 @@ Set the `PORT` environment variable to change the port.
 
 The server listens on all IPv4 **and** IPv6 interfaces (`::`, dual-stack).
 
+## Installing as a systemd service
+
+Run the installer to set up a persistent **systemd user service** that starts automatically on boot and restarts on failure:
+
+```bash
+./install.sh
+```
+
+The script will:
+- Install npm dependencies
+- Copy `secrets.example.json` → `secrets.json` if missing
+- Write `~/.config/systemd/user/web-notifications.service`
+- Enable and start the service
+- Enable linger so the service survives logout
+
+Useful commands after installation:
+
+```bash
+systemctl --user status  web-notifications
+systemctl --user restart web-notifications
+systemctl --user stop    web-notifications
+journalctl --user -u     web-notifications -f
+```
+
 ## Configuration
 
 Copy `secrets.example.json` to `secrets.json`. VAPID keys are required for browser push notifications; SMTP is required for email-based account reset.
@@ -57,6 +81,8 @@ Sign in (or register) with a username and password. Once signed in you can:
 - Generate a **QR code** to configure a smartphone — click the "QR Code" button in the user bar (see [QR_CODE.md](QR_CODE.md))
 
 New notifications are delivered in real-time via **Server-Sent Events** (SSE) while a tab is open. Browser push notifications are delivered via the service worker when no tab is open. Incoming notifications slide in with an animation; dismissed notifications fade out with a red flash. The favicon badge shows the unread count.
+
+Silent notifications (those with `isSilent: true`) are displayed in a separate **🔇 Silent** section below regular notifications.
 
 ## API
 
