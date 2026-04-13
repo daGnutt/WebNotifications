@@ -81,3 +81,8 @@ Android device / curl
 - **No framework on the frontend** — plain JS with `fetch`. Keep it that way; do not introduce bundlers or npm-managed frontend dependencies.
 - **uuid must stay at `^9.0.0`** — uuid v10+ is ESM-only and breaks `require()` in this CommonJS server. Do not upgrade.
 - **Dual-stack binding** — the server uses `http.createServer(app)` + `server.listen({ host: '::', ipv6Only: false })` to accept both IPv4 and IPv6 connections on a single socket. Do not switch back to `app.listen()`.
+
+## After making changes
+
+- **Update `API_DOCS.md`** whenever any API endpoint is added, removed, or its request/response contract changes.
+- **Commit and push all changes** (code, documentation, and any other modified files) in a single commit before considering the task done.
