@@ -465,6 +465,7 @@
             </label>
             <button class="btn btn-secondary" onclick="showQRCode()" title="Show QR code to configure smartphone">QR Code</button>
             <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
+            <button class="btn btn-danger" onclick="purgeAccount()" title="Permanently delete account and all data">Delete Account</button>
         </div>
     </div>
 
@@ -658,6 +659,25 @@ function connectSSE(userId) {
             document.getElementById('username-input').value = '';
             document.getElementById('user-info').style.display = 'none';
             fetchNotifications();
+        }
+
+        async function purgeAccount() {
+            if (!currentUser) return;
+            if (!confirm(`Permanently delete account "${currentUser.username}" and all its notifications? This cannot be undone.`)) return;
+            try {
+                const res = await fetch(`/api/users/${currentUser.userId}?userId=${encodeURIComponent(currentUser.userId)}`, {
+                    method: 'DELETE'
+                });
+                if (!res.ok) {
+                    const body = await res.json().catch(() => ({}));
+                    alert('Failed to delete account: ' + (body.error || res.status));
+                    return;
+                }
+            } catch (e) {
+                alert('Failed to delete account: ' + e.message);
+                return;
+            }
+            logout();
         }
 
         async function toggleShowAppName(checked) {
