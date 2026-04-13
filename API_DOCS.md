@@ -421,8 +421,24 @@ Get all notifications for the authenticated user. The path `:userId` must match 
 
 ---
 
-#### `PATCH /api/users/:userId/email`
+#### `DELETE /api/users/:userId`
 
+Permanently delete the account and **all associated data** (notifications, push subscriptions, FCM device tokens, reset codes). The path `:userId` must match the authenticated `userId`. Any open SSE connections for the user are closed immediately.
+
+**Query parameter:** `userId` (required, as with all protected endpoints).
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | Account deleted          | `{ success: true }`         |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+| `403`  | Forbidden (wrong user)   | `{ success: false, error }` |
+| `500`  | Server error             | `{ success: false, error }` |
+
+---
+
+#### `PATCH /api/users/:userId/email`
 Update the email address for the authenticated user. The path `:userId` must match the authenticated `userId`.
 
 **Request body**

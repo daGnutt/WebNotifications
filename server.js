@@ -54,6 +54,27 @@ function broadcastToUser(userId, event, data) {
   }
 }
 
+// Close and remove all open SSE connections for a user.
+function disconnectSseClients(userId) {
+  const clients = sseClients.get(userId);
+  if (!clients) return;
+  for (const res of clients) {
+    try { res.end(); } catch (_) {}
+  }
+  sseClients.delete(userId);
+}
+
+// Delete a user and all their associated data from every table.
+function purgeUser(userId, callback) {
+  db.serialize(() => {
+    db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
+    db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId]);
+    db.run('DELETE FROM device_tokens      WHERE user_id = ?', [userId]);
+    db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
+    db.run('DELETE FROM users              WHERE user_id = ?', [userId], callback);
+  });
+}
+
 // Set up web-push with VAPID keys from secrets.json
 const vapidKeys = secrets.vapid || {};
 if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
@@ -746,18 +767,12 @@ app.post('/api/auth/reset-confirm', (req, res) => {
       const { username, email } = user;
 
       // Delete the old account and all associated data, then recreate
-      db.serialize(() => {
-        db.run('DELETE FROM reset_codes WHERE user_id = ?', [user.user_id]);
-        db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [user.user_id]);
-        db.run('DELETE FROM device_tokens WHERE user_id = ?', [user.user_id]);
-        db.run('DELETE FROM notifications WHERE user_id = ?', [user.user_id]);
-        db.run('DELETE FROM users WHERE user_id = ?', [user.user_id], (delErr) => {
-          if (delErr) return res.status(500).json({ success: false, error: 'Failed to reset account' });
-
-          createUser(username, newPassword, email, (createErr, newUser) => {
-            if (createErr) return res.status(500).json({ success: false, error: 'Failed to recreate account' });
-            res.status(200).json({ success: true, user: newUser });
-          });
+      purgeUser(user.user_id, (delErr) => {
+        if (delErr) return res.status(500).json({ success: false, error: 'Failed to reset account' });
+        disconnectSseClients(user.user_id);
+        createUser(username, newPassword, email, (createErr, newUser) => {
+          if (createErr) return res.status(500).json({ success: false, error: 'Failed to recreate account' });
+          res.status(200).json({ success: true, user: newUser });
         });
       });
     });
@@ -796,8 +811,20 @@ app.get('/api/users/:userId', requireUserId, (req, res) => {
   res.status(200).json(safeUser);
 });
 
-app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {
+app.delete('/api/users/:userId', requireUserId, (req, res) => {
   if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  const userId = req.user.user_id;
+  purgeUser(userId, (err) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to delete account' });
+    console.log(`User ${userId} purged`);
+    disconnectSseClients(userId);
+    res.status(200).json({ success: true });
+  });
+});
+
+app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {  if (req.params.userId !== req.user.user_id) {
     return res.status(403).json({ success: false, error: 'Forbidden' });
   }
   getAllNotifications(req.user.user_id, (err, rows) => {
