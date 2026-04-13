@@ -455,7 +455,8 @@
         // ── State ────────────────────────────────────────────────────────────
         let currentUser = null;  // { userId, username }
         let shownNotificationIds = new Set();
-        let unreadCount = 0;
+        let badgeCount = 0;
+        let focusTimer = null;
         let pendingNotifications = null;   // staged while heads-up banner is showing
         let headsUpTimeout = null;
         let initialLoadDone = false;
@@ -745,6 +746,13 @@ function connectSSE(userId) {
                 if (newOnes.length > 0 && initialLoadDone) {
                     // Stage the incoming notifications and warn the user first
                     pendingNotifications = { notifications, newIds: new Set(newOnes.map(n => n.id)) };
+
+                    // Only badge when the page doesn't have focus
+                    if (!document.hasFocus()) {
+                        badgeCount += newOnes.length;
+                        updateTitleWithCount();
+                    }
+
                     animateFaviconBell();
                     showHeadsUpBanner();
 
@@ -757,8 +765,6 @@ function connectSSE(userId) {
                             pendingNotifications = null;
                             pending.forEach(n => shownNotificationIds.add(n.id));
                             displayNotifications(pending, newIds);
-                            unreadCount = pending.length;
-                            updateTitleWithCount();
                             initialLoadDone = true;
                         }
                     }, HEADS_UP_MS);
@@ -767,8 +773,6 @@ function connectSSE(userId) {
                     if (!headsUpTimeout) {
                         notifications.forEach(n => shownNotificationIds.add(n.id));
                         displayNotifications(notifications, new Set());
-                        unreadCount = notifications.length;
-                        updateTitleWithCount();
                         initialLoadDone = true;
                     } else {
                         // While banner is showing, keep pending up to date
@@ -971,8 +975,8 @@ function connectSSE(userId) {
         setInterval(refreshTimestamps, 30000);
 
         function updateTitleWithCount() {
-            document.title = unreadCount > 0 ? `(${unreadCount}) Web Notifications` : 'Web Notifications';
-            updateFavicon(unreadCount, 0);
+            document.title = badgeCount > 0 ? `(${badgeCount}) Web Notifications` : 'Web Notifications';
+            updateFavicon(badgeCount, 0);
         }
 
         function updateFavicon(count, tilt = 0) {
@@ -1052,7 +1056,7 @@ function connectSSE(userId) {
             const tilts = [0, 0.35, -0.35, 0.28, -0.28, 0.18, -0.18, 0.1, -0.1, 0];
             let i = 0;
             const tick = () => {
-                updateFavicon(unreadCount, tilts[i]);
+                updateFavicon(badgeCount, tilts[i]);
                 i++;
                 if (i < tilts.length) setTimeout(tick, 60);
             };
@@ -1097,7 +1101,6 @@ function connectSSE(userId) {
                     setTimeout(() => {
                         el.remove();
                         shownNotificationIds.delete(id);
-                        unreadCount = Math.max(0, unreadCount - 1);
                         updateTitleWithCount();
                         resolve();
                     }, 200);
@@ -1111,7 +1114,6 @@ function connectSSE(userId) {
             // UI-initiated: instant removal, no animation
             el.remove();
             shownNotificationIds.delete(id);
-            unreadCount = Math.max(0, unreadCount - 1);
             updateTitleWithCount();
             try {
                 await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
@@ -1151,6 +1153,22 @@ function connectSSE(userId) {
         function closeQRModal() {
             document.getElementById('qr-modal').style.display = 'none';
         }
+
+        // ── Focus-aware badge clearing ────────────────────────────────────────
+        // Badge only shows for notifications that arrived while the page was
+        // unfocused. After 3 continuous seconds of focus it is cleared.
+        window.addEventListener('focus', () => {
+            if (badgeCount === 0 || focusTimer) return;
+            focusTimer = setTimeout(() => {
+                focusTimer = null;
+                badgeCount = 0;
+                updateTitleWithCount();
+            }, 3000);
+        });
+
+        window.addEventListener('blur', () => {
+            if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; }
+        });
 
         // ── Bootstrap ────────────────────────────────────────────────────────
         registerServiceWorker();
