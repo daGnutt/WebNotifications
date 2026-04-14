@@ -460,6 +460,28 @@ Update the email address for the authenticated user. The path `:userId` must mat
 
 ---
 
+#### `PATCH /api/users/:userId/preferences`
+Update user preferences. The path `:userId` must match the authenticated `userId`. Only fields that are present in the request body are updated.
+
+**Request body**
+
+| Field         | Type            | Required | Description                                                   |
+|---------------|-----------------|----------|---------------------------------------------------------------|
+| `userId`      | string          | Yes      | User UUID                                                     |
+| `show_app_name` | integer (0/1) | No       | Whether to show the app name on notification cards (`1` = show, `0` = hide). |
+| `hidden_apps` | array or null   | No       | List of app name strings whose notifications are hidden in the frontend. Pass `null` or `[]` to show all apps. |
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | Updated                  | `{ success: true }`         |
+| `400`  | No valid fields / invalid `hidden_apps` type | `{ success: false, error }` |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+| `500`  | Server error             | `{ success: false, error }` |
+
+---
+
 ## Error Format
 
 All error responses share a common shape:

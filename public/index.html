@@ -33,7 +33,7 @@
             font-family: Arial, sans-serif;
             max-width: 800px;
             margin: 0 auto;
-            padding: 20px 20px 100px;
+            padding: 20px;
             background-color: var(--bg-color);
             color: var(--text-color);
             transition: background-color 0.3s, color 0.3s;
@@ -335,48 +335,152 @@
         .notification-indicator.dismissing {
             animation: breatheRed 0.8s ease-in-out;
         }
-        .user-bar {
+        /* ── Floating action button ── */
+        .fab-button {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            width: 56px;
+            height: 56px;
+            border-radius: 50%;
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+            font-size: 22px;
+            font-weight: bold;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.25);
+            z-index: 200;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.2s, transform 0.15s, box-shadow 0.2s;
+        }
+        .fab-button:hover {
+            background-color: #43a047;
+            box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+            transform: scale(1.06);
+        }
+        .fab-button.flyout-open {
+            background-color: #e53935;
+        }
+        .fab-button.flyout-open:hover {
+            background-color: #c62828;
+        }
+
+        /* ── Flyout backdrop ── */
+        .flyout-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 300;
+        }
+        .flyout-backdrop.visible { display: block; }
+
+        /* ── Flyout panel ── */
+        .flyout-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: 320px;
+            max-width: 100vw;
+            background-color: var(--card-bg);
+            border-left: 1px solid var(--border-color);
+            box-shadow: -4px 0 24px rgba(0,0,0,0.2);
+            z-index: 400;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.28s cubic-bezier(0.4, 0, 0.2, 1);
+            overflow-y: auto;
+        }
+        .flyout-panel.open { transform: translateX(0); }
+
+        .flyout-header {
             display: flex;
             align-items: center;
             justify-content: space-between;
-            background-color: var(--card-bg);
-            border: 1px solid var(--border-color);
-            border-radius: 8px;
-            padding: 10px 15px;
-            position: fixed;
-            bottom: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: calc(100% - 40px);
-            max-width: 760px;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.15);
-            box-sizing: border-box;
-            z-index: 100;
+            padding: 16px 16px 12px;
+            border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
         }
-        .user-bar-login {
+        .flyout-header h2 {
+            margin: 0;
+            font-size: 16px;
+            font-weight: 600;
+            color: var(--text-color);
+        }
+        .flyout-close-btn {
+            background: none;
+            border: none;
+            font-size: 20px;
+            cursor: pointer;
+            color: var(--header-color);
+            line-height: 1;
+            padding: 4px 8px;
+            border-radius: 4px;
+            transition: background-color 0.15s, color 0.15s;
+        }
+        .flyout-close-btn:hover {
+            background-color: rgba(244, 67, 54, 0.12);
+            color: #f44336;
+        }
+
+        .flyout-body {
+            flex: 1;
+            padding: 16px;
             display: flex;
-            align-items: center;
-            gap: 8px;
-            flex-grow: 1;
+            flex-direction: column;
+            gap: 16px;
         }
-        .user-bar-login input {
-            flex-grow: 1;
-            padding: 7px 10px;
+
+        .flyout-section-title {
+            font-size: 11px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--header-color);
+            margin: 0 0 8px;
+        }
+
+        /* ── User form inside flyout ── */
+        .flyout-login {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .flyout-login input {
+            width: 100%;
+            padding: 8px 10px;
             border: 1px solid var(--border-color);
             border-radius: 4px;
             background-color: var(--bg-color);
             color: var(--text-color);
             font-size: 14px;
-            min-width: 0;
+            box-sizing: border-box;
         }
-        .user-bar-info {
+        .flyout-login .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+        .flyout-login .btn-row .btn { flex: 1; }
+
+        /* ── User info inside flyout ── */
+        .flyout-user-info {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .flyout-user-header {
             display: flex;
             align-items: center;
-            gap: 12px;
+            gap: 10px;
         }
         .user-avatar {
-            width: 32px;
-            height: 32px;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             background-color: #4CAF50;
             color: white;
@@ -384,16 +488,75 @@
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 14px;
+            font-size: 16px;
             flex-shrink: 0;
         }
         .user-name {
             font-weight: bold;
-            font-size: 14px;
+            font-size: 15px;
         }
         .user-label {
             font-size: 12px;
             color: var(--header-color);
+        }
+        .flyout-actions {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .flyout-actions .btn-row {
+            display: flex;
+            gap: 8px;
+        }
+        .flyout-actions .btn-row .btn { flex: 1; }
+        .flyout-pref-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            color: var(--text-color);
+            cursor: pointer;
+        }
+
+        /* ── App filter list ── */
+        .app-filter-list {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+        .app-filter-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 6px 10px;
+            border-radius: 6px;
+            background-color: var(--bg-color);
+            font-size: 13px;
+            color: var(--text-color);
+        }
+        .app-filter-item .app-filter-name {
+            flex: 1;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .app-filter-toggle {
+            background: none;
+            border: none;
+            cursor: pointer;
+            font-size: 16px;
+            padding: 2px 4px;
+            border-radius: 4px;
+            transition: opacity 0.15s;
+        }
+        .app-filter-item.hidden-app .app-filter-name {
+            opacity: 0.45;
+            text-decoration: line-through;
+        }
+        .app-filter-empty {
+            font-size: 12px;
+            color: var(--header-color);
+            font-style: italic;
         }
         .btn {
             padding: 7px 14px;
@@ -415,57 +578,108 @@
     <h1><img src="/favicon.svg" width="32" height="32" style="vertical-align:middle;margin-right:8px;">Web Notifications</h1>
     <div id="notifications-container"></div>
 
-    <!-- User bar -->
-    <div class="user-bar" id="user-bar">
-        <div class="user-bar-login" id="login-form">
-            <input type="text" id="username-input" placeholder="Username" maxlength="64"
-                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
-            <input type="password" id="password-input" placeholder="Password" maxlength="128"
-                   onkeydown="if(event.key==='Enter') loginOrRegister()" />
-            <button class="btn btn-primary" onclick="loginOrRegister()">Sign In / Register</button>
-            <button class="btn btn-secondary" onclick="showResetForm()" title="Reset account via email">Reset</button>
-        </div>
+    <!-- Floating action button -->
+    <button class="fab-button" id="fab-button" onclick="toggleFlyout()" title="Account &amp; settings">
+        <span id="fab-label">&#128100;</span>
+    </button>
 
-        <!-- Reset request form -->
-        <div id="reset-request-form" style="display:none; width:100%" class="user-bar-login">
-            <input type="text" id="reset-username-input" placeholder="Username" maxlength="64"
-                   onkeydown="if(event.key==='Enter') sendResetCode()" />
-            <button class="btn btn-primary" onclick="sendResetCode()">Send Code</button>
-            <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
-        </div>
+    <!-- Flyout backdrop -->
+    <div class="flyout-backdrop" id="flyout-backdrop" onclick="closeFlyout()"></div>
 
-        <!-- Reset confirm form -->
-        <div id="reset-confirm-form" style="display:none; width:100%" class="user-bar-login">
-            <input type="text" id="reset-code-input" placeholder="6-digit code" maxlength="6"
-                   onkeydown="if(event.key==='Enter') confirmReset()" />
-            <input type="password" id="reset-newpassword-input" placeholder="New password" maxlength="128"
-                   onkeydown="if(event.key==='Enter') confirmReset()" />
-            <button class="btn btn-primary" onclick="confirmReset()">Reset Account</button>
-            <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
+    <!-- Flyout panel -->
+    <div class="flyout-panel" id="flyout-panel">
+        <div class="flyout-header">
+            <h2>Account</h2>
+            <button class="flyout-close-btn" onclick="closeFlyout()" title="Close">&#x2715;</button>
         </div>
-        <div class="user-bar-info" id="user-info" style="display:none">
-            <div class="user-avatar" id="user-avatar"></div>
-            <div>
-                <div class="user-name" id="user-display-name"></div>
-                <div class="user-label" id="user-id-label" title="Click to copy" style="cursor:pointer" onclick="copyUserId()"></div>
-                <div class="user-label" id="user-email-row">
-                    <span id="user-email-display" style="cursor:pointer" onclick="showEmailEdit()" title="Click to edit email"></span>
-                    <span id="user-email-edit" style="display:none">
-                        <input type="email" id="user-email-input" maxlength="256" placeholder="your@email.com"
-                               style="font-size:12px;padding:2px 6px;border:1px solid var(--border-color);border-radius:3px;background:var(--bg-color);color:var(--text-color)"
-                               onkeydown="if(event.key==='Enter') saveEmail(); if(event.key==='Escape') hideEmailEdit()" />
-                        <button class="btn btn-primary" style="padding:2px 8px;font-size:12px" onclick="saveEmail()">Save</button>
-                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:12px" onclick="hideEmailEdit()">Cancel</button>
-                    </span>
+        <div class="flyout-body">
+
+            <!-- Login form -->
+            <div id="login-form" class="flyout-login">
+                <p class="flyout-section-title">Sign In / Register</p>
+                <input type="text" id="username-input" placeholder="Username" maxlength="64"
+                       onkeydown="if(event.key==='Enter') document.getElementById('password-input').focus()" />
+                <input type="password" id="password-input" placeholder="Password" maxlength="128"
+                       onkeydown="if(event.key==='Enter') loginOrRegister()" />
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="loginOrRegister()">Sign In / Register</button>
+                    <button class="btn btn-secondary" onclick="showResetForm()" title="Reset account via email">Reset</button>
                 </div>
             </div>
-            <label style="display:flex;align-items:center;gap:4px;font-size:12px;white-space:nowrap;cursor:pointer;color:var(--text-color)">
-                <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
-                App name
-            </label>
-            <button class="btn btn-secondary" onclick="showQRCode()" title="Show QR code to configure smartphone">QR Code</button>
-            <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
-            <button class="btn btn-danger" onclick="purgeAccount()" title="Permanently delete account and all data">Delete Account</button>
+
+            <!-- Reset request form -->
+            <div id="reset-request-form" style="display:none" class="flyout-login">
+                <p class="flyout-section-title">Reset Account</p>
+                <input type="text" id="reset-username-input" placeholder="Username" maxlength="64"
+                       onkeydown="if(event.key==='Enter') sendResetCode()" />
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="sendResetCode()">Send Code</button>
+                    <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
+                </div>
+            </div>
+
+            <!-- Reset confirm form -->
+            <div id="reset-confirm-form" style="display:none" class="flyout-login">
+                <p class="flyout-section-title">Enter Reset Code</p>
+                <input type="text" id="reset-code-input" placeholder="6-digit code" maxlength="6"
+                       onkeydown="if(event.key==='Enter') confirmReset()" />
+                <input type="password" id="reset-newpassword-input" placeholder="New password" maxlength="128"
+                       onkeydown="if(event.key==='Enter') confirmReset()" />
+                <div class="btn-row">
+                    <button class="btn btn-primary" onclick="confirmReset()">Reset Account</button>
+                    <button class="btn btn-secondary" onclick="showLoginForm()">Cancel</button>
+                </div>
+            </div>
+
+            <!-- User info -->
+            <div id="user-info" style="display:none" class="flyout-user-info">
+                <div class="flyout-user-header">
+                    <div class="user-avatar" id="user-avatar"></div>
+                    <div>
+                        <div class="user-name" id="user-display-name"></div>
+                        <div class="user-label" id="user-id-label" title="Click to copy" style="cursor:pointer" onclick="copyUserId()"></div>
+                    </div>
+                </div>
+
+                <!-- Email -->
+                <div class="user-label" id="user-email-row">
+                    <span id="user-email-display" style="cursor:pointer" onclick="showEmailEdit()" title="Click to edit email"></span>
+                    <span id="user-email-edit" style="display:none;gap:6px;flex-wrap:wrap">
+                        <input type="email" id="user-email-input" maxlength="256" placeholder="your@email.com"
+                               style="flex:1;font-size:12px;padding:4px 8px;border:1px solid var(--border-color);border-radius:3px;background:var(--bg-color);color:var(--text-color);min-width:0"
+                               onkeydown="if(event.key==='Enter') saveEmail(); if(event.key==='Escape') hideEmailEdit()" />
+                        <button class="btn btn-primary" style="padding:3px 10px;font-size:12px" onclick="saveEmail()">Save</button>
+                        <button class="btn btn-secondary" style="padding:3px 10px;font-size:12px" onclick="hideEmailEdit()">Cancel</button>
+                    </span>
+                </div>
+
+                <!-- Preferences -->
+                <div>
+                    <p class="flyout-section-title">Preferences</p>
+                    <label class="flyout-pref-row">
+                        <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
+                        Show app name on notifications
+                    </label>
+                </div>
+
+                <!-- Actions -->
+                <div class="flyout-actions">
+                    <div class="btn-row">
+                        <button class="btn btn-secondary" onclick="showQRCode()" title="Show QR code to configure smartphone">QR Code</button>
+                        <button class="btn btn-secondary" onclick="logout()">Sign Out</button>
+                    </div>
+                    <button class="btn btn-danger" onclick="purgeAccount()" title="Permanently delete account and all data" style="width:100%">Delete Account</button>
+                </div>
+            </div>
+
+            <!-- App filters (shown only when logged in) -->
+            <div id="app-filters-section" style="display:none">
+                <p class="flyout-section-title">App Filters</p>
+                <div class="app-filter-list" id="app-filter-list">
+                    <span class="app-filter-empty">No apps found in notifications.</span>
+                </div>
+            </div>
+
         </div>
     </div>
 
@@ -478,6 +692,8 @@
 
         // ── State ────────────────────────────────────────────────────────────
         let currentUser = null;  // { userId, username }
+        let hiddenApps = new Set();
+        let allNotifications = [];  // full list from server (unfiltered)
         let shownNotificationIds = new Set();
         let badgeCount = 0;
         let focusTimer = null;
@@ -589,11 +805,16 @@ function connectSSE(userId) {
             currentUser = user;
             localStorage.setItem('currentUser', JSON.stringify(user));
 
+            // Parse hidden apps
+            hiddenApps = new Set(Array.isArray(user.hiddenApps) ? user.hiddenApps : []);
+
             document.getElementById('login-form').style.display = 'none';
             document.getElementById('user-info').style.display = 'flex';
             document.getElementById('user-display-name').textContent = user.username;
             document.getElementById('user-id-label').textContent = `ID: ${user.userId}`;
             document.getElementById('user-avatar').textContent = user.username.charAt(0).toUpperCase();
+            document.getElementById('fab-label').textContent = user.username.charAt(0).toUpperCase();
+            document.getElementById('app-filters-section').style.display = 'block';
             updateEmailDisplay(user.email || null);
 
             const showAppName = user.showAppName || false;
@@ -603,6 +824,7 @@ function connectSSE(userId) {
             subscribeToPushNotifications();
             fetchNotifications();
             connectSSE(user.userId);
+            closeFlyout();
         }
 
         function updateEmailDisplay(email) {
@@ -615,7 +837,7 @@ function connectSSE(userId) {
 
         function showEmailEdit() {
             document.getElementById('user-email-display').style.display = 'none';
-            document.getElementById('user-email-edit').style.display = 'inline-flex';
+            document.getElementById('user-email-edit').style.display = 'flex';
             const input = document.getElementById('user-email-input');
             input.value = currentUser?.email || '';
             input.focus();
@@ -651,6 +873,8 @@ function connectSSE(userId) {
         function logout() {
             disconnectSSE();
             currentUser = null;
+            hiddenApps = new Set();
+            allNotifications = [];
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
             document.body.classList.remove('show-app-name');
@@ -658,6 +882,9 @@ function connectSSE(userId) {
             document.getElementById('login-form').style.display = 'flex';
             document.getElementById('username-input').value = '';
             document.getElementById('user-info').style.display = 'none';
+            document.getElementById('app-filters-section').style.display = 'none';
+            document.getElementById('fab-label').textContent = '\u{1F464}';
+            closeFlyout();
             fetchNotifications();
         }
 
@@ -709,7 +936,8 @@ function connectSSE(userId) {
                                 userId: fetched.user_id,
                                 username: fetched.username,
                                 email: fetched.email || null,
-                                showAppName: !!fetched.show_app_name
+                                showAppName: !!fetched.show_app_name,
+                                hiddenApps: (() => { try { return fetched.hidden_apps ? JSON.parse(fetched.hidden_apps) : []; } catch { return []; } })()
                             });
                         })
                         .catch(() => logout());
@@ -783,6 +1011,9 @@ function connectSSE(userId) {
                 const url = `/api/notifications?userId=${currentUser.userId}`;
                 const response = await fetch(url);
                 const notifications = await response.json();
+
+                allNotifications = notifications;
+                renderFlyoutAppFilters();
 
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
 
@@ -861,13 +1092,23 @@ function connectSSE(userId) {
 
         function displayNotifications(notifications, newIds = new Set()) {
             const container = document.getElementById('notifications-container');
-            if (notifications.length === 0) {
-                container.innerHTML = '<div class="no-notifications">No active notifications</div>';
+
+            // Filter out notifications from hidden apps
+            const visible = notifications.filter(n => {
+                const key = n.appName || null;
+                return !hiddenApps.has(key);
+            });
+
+            if (visible.length === 0) {
+                const hiddenCount = notifications.length - visible.length;
+                container.innerHTML = hiddenCount > 0
+                    ? `<div class="no-notifications">No active notifications<br><span style="font-size:12px">(${hiddenCount} hidden by app filter)</span></div>`
+                    : '<div class="no-notifications">No active notifications</div>';
                 return;
             }
 
-            const normal = notifications.filter(n => !n.isSilent);
-            const silent = notifications.filter(n => n.isSilent === true);
+            const normal = visible.filter(n => !n.isSilent);
+            const silent = visible.filter(n => n.isSilent === true);
 
             let html = normal.map(n => renderNotificationCard(n, newIds)).join('');
 
@@ -876,6 +1117,11 @@ function connectSSE(userId) {
                     html += `<div class="notifications-section-header">🔇 Silent</div>`;
                 }
                 html += silent.map(n => renderNotificationCard(n, newIds)).join('');
+            }
+
+            const hiddenCount = notifications.length - visible.length;
+            if (hiddenCount > 0) {
+                html += `<div class="notifications-section-header">${hiddenCount} notification${hiddenCount !== 1 ? 's' : ''} hidden by app filter</div>`;
             }
 
             container.innerHTML = html;
@@ -1208,6 +1454,91 @@ function connectSSE(userId) {
 
         function closeQRModal() {
             document.getElementById('qr-modal').style.display = 'none';
+        }
+
+        // ── Flyout panel ─────────────────────────────────────────────────────
+        function openFlyout() {
+            document.getElementById('flyout-panel').classList.add('open');
+            document.getElementById('flyout-backdrop').classList.add('visible');
+            document.getElementById('fab-button').classList.add('flyout-open');
+            document.getElementById('fab-button').title = 'Close';
+        }
+
+        function closeFlyout() {
+            document.getElementById('flyout-panel').classList.remove('open');
+            document.getElementById('flyout-backdrop').classList.remove('visible');
+            document.getElementById('fab-button').classList.remove('flyout-open');
+            document.getElementById('fab-button').title = 'Account & settings';
+        }
+
+        function toggleFlyout() {
+            const isOpen = document.getElementById('flyout-panel').classList.contains('open');
+            isOpen ? closeFlyout() : openFlyout();
+        }
+
+        // ── App filters ──────────────────────────────────────────────────────
+        function renderFlyoutAppFilters() {
+            if (!currentUser) return;
+            const list = document.getElementById('app-filter-list');
+            if (!list) return;
+
+            // Collect unique app keys from current notifications
+            const appKeys = [...new Set(allNotifications.map(n => n.appName || null))];
+            appKeys.sort((a, b) => {
+                if (a === null) return 1;
+                if (b === null) return -1;
+                return a.localeCompare(b);
+            });
+
+            if (appKeys.length === 0) {
+                list.innerHTML = '<span class="app-filter-empty">No apps found in notifications.</span>';
+                return;
+            }
+
+            list.innerHTML = appKeys.map(key => {
+                const isHidden = hiddenApps.has(key);
+                const label = key === null ? '<em style="opacity:0.6">(No app name)</em>' : escapeHtml(key);
+                return `<div class="app-filter-item${isHidden ? ' hidden-app' : ''}" id="app-filter-${encodeURIComponent(key ?? '__null__')}">
+                    <span class="app-filter-name">${label}</span>
+                    <button class="app-filter-toggle" onclick="toggleHideApp(${key === null ? 'null' : `'${escapeHtml(key)}'`})"
+                            title="${isHidden ? 'Show notifications from this app' : 'Hide notifications from this app'}">
+                        ${isHidden ? '🚫' : '👁'}
+                    </button>
+                </div>`;
+            }).join('');
+        }
+
+        async function toggleHideApp(appKey) {
+            if (hiddenApps.has(appKey)) {
+                hiddenApps.delete(appKey);
+            } else {
+                hiddenApps.add(appKey);
+            }
+
+            // Update currentUser state and persist to localStorage
+            if (currentUser) {
+                currentUser.hiddenApps = [...hiddenApps];
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            }
+
+            renderFlyoutAppFilters();
+            // Re-render notifications with updated filter
+            if (allNotifications.length > 0) {
+                displayNotifications(allNotifications, new Set());
+            }
+
+            await saveHiddenApps();
+        }
+
+        async function saveHiddenApps() {
+            if (!currentUser) return;
+            try {
+                await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: currentUser.userId, hidden_apps: [...hiddenApps] })
+                });
+            } catch (e) { console.error('Failed to save hidden apps:', e); }
         }
 
         // ── Focus-aware badge clearing ────────────────────────────────────────

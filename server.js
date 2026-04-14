@@ -120,6 +120,7 @@ function initializeDatabase() {
     db.run(`ALTER TABLE users ADD COLUMN password_hash TEXT`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN show_app_name INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN hidden_apps TEXT DEFAULT NULL`, () => {});
     
     // Create notifications table with user_id
     db.run(`
@@ -696,7 +697,7 @@ app.post('/api/auth', async (req, res) => {
       if (!valid) return res.status(401).json({ success: false, error: 'Incorrect password' });
 
       updateUserLastActive(user.user_id, () => {});
-      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name } });
+      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name, hiddenApps: (() => { try { return user.hidden_apps ? JSON.parse(user.hidden_apps) : []; } catch { return []; } })() } });
     }
   });
 });
@@ -793,13 +794,36 @@ app.patch('/api/users/:userId/email', requireUserId, (req, res) => {
 });
 
 app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
-  const { show_app_name } = req.body;
-  db.run('UPDATE users SET show_app_name = ? WHERE user_id = ?',
-    [show_app_name ? 1 : 0, req.user.user_id], function(err) {
-      if (err) return res.status(500).json({ success: false, error: 'Failed to update preferences' });
-      res.status(200).json({ success: true });
+  const { show_app_name, hidden_apps } = req.body;
+  const fields = [];
+  const params = [];
+
+  if (show_app_name !== undefined) {
+    fields.push('show_app_name = ?');
+    params.push(show_app_name ? 1 : 0);
+  }
+
+  if (hidden_apps !== undefined) {
+    if (hidden_apps === null) {
+      fields.push('hidden_apps = ?');
+      params.push(null);
+    } else if (Array.isArray(hidden_apps)) {
+      fields.push('hidden_apps = ?');
+      params.push(JSON.stringify(hidden_apps));
+    } else {
+      return res.status(400).json({ success: false, error: 'hidden_apps must be an array or null' });
     }
-  );
+  }
+
+  if (fields.length === 0) {
+    return res.status(400).json({ success: false, error: 'No valid fields to update' });
+  }
+
+  params.push(req.user.user_id);
+  db.run(`UPDATE users SET ${fields.join(', ')} WHERE user_id = ?`, params, function(err) {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to update preferences' });
+    res.status(200).json({ success: true });
+  });
 });
 
 app.get('/api/users/:userId', requireUserId, (req, res) => {
