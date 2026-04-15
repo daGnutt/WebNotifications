@@ -103,11 +103,11 @@ const db = new sqlite3.Database('./notifications.db', (err) => {
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database');
-    initializeDatabase();
+    initializeDatabase(() => sendResyncRequest());
   }
 });
 
-function initializeDatabase() {
+function initializeDatabase(callback) {
   db.serialize(() => {
     // Create users table
     db.run(`
@@ -167,7 +167,45 @@ function initializeDatabase() {
         last_active TEXT,
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
-    `);
+    `, () => { if (callback) callback(); });
+  });
+}
+
+// Send { type: "resync" } to all registered FCM device tokens (or a single specific token).
+// Called at startup and when a new token is registered, so Android devices re-POST their
+// buffered notifications after the server loses its in-memory notification store.
+async function sendResyncRequest(specificToken) {
+  if (!fcmAdmin) return;
+
+  let tokens;
+  if (specificToken) {
+    tokens = [specificToken];
+  } else {
+    tokens = await new Promise((resolve, reject) => {
+      db.all('SELECT fcm_token FROM device_tokens', (err, rows) => {
+        if (err) return reject(err);
+        resolve(rows.map(r => r.fcm_token));
+      });
+    });
+  }
+
+  if (tokens.length === 0) return;
+  console.log(`Sending FCM resync request to ${tokens.length} device(s)`);
+
+  const results = await Promise.allSettled(
+    tokens.map(token => fcmAdmin.messaging().send({ token, data: { type: 'resync' } }))
+  );
+  results.forEach((result, i) => {
+    if (result.status === 'rejected') {
+      const err = result.reason;
+      console.error('FCM resync error for token', tokens[i], ':', err.message);
+      if (
+        err.code === 'messaging/registration-token-not-registered' ||
+        err.code === 'messaging/invalid-registration-token'
+      ) {
+        deleteDeviceToken(tokens[i], () => {});
+      }
+    }
   });
 }
 
@@ -568,6 +606,7 @@ app.post('/api/device-tokens', requireUserId, (req, res) => {
       return res.status(500).json({ success: false, error: 'Failed to store device token' });
     }
     console.log('FCM device token stored for user', req.user.user_id);
+    sendResyncRequest(token).catch(e => console.error('FCM resync error after token register:', e.message));
     res.status(200).json({ success: true });
   });
 });

@@ -372,6 +372,16 @@ When an **action** is recorded:
 ```
 (`actionResponse` is omitted if not provided.)
 
+When the server requests a **resync** of buffered notifications:
+```json
+{ "type": "resync" }
+```
+The server sends this in two situations:
+1. **Server startup** — sent to every registered FCM device token so Android devices re-POST any notifications the server lost when it restarted (the in-memory store is wiped on restart).
+2. **New token registered** — sent immediately to the newly registered token so the device replays its buffered notifications without waiting for the next restart.
+
+The Android app should respond to `type: "resync"` by re-POSTing all locally buffered recent notifications to `POST /api/notifications`.
+
 > All values in FCM data messages are strings as required by the FCM protocol.
 
 ---
