@@ -105,7 +105,7 @@ Silent notifications (those with `isSilent: true`) are displayed in a separate *
 
 | Method | Endpoint | Description |
 |--------|----------|-------------|
-| `POST` | `/api/notifications` | Receive a notification (fans out push + SSE to subscribers). Requires `userId`. Silently ignored if both `title` and `body` are blank. |
+| `POST` | `/api/notifications` | Receive a notification, store it in memory, and fan out push + SSE to subscribers. Requires `userId`. Silently ignored if both `title` and `body` are blank. |
 | `GET` | `/api/notifications?userId=<id>` | List notifications for the given user. |
 | `GET` | `/api/notifications/stream?userId=<id>` | SSE stream — pushes `update` events to open browser tabs in real time. |
 | `DELETE` | `/api/notifications/:id` | Dismiss a notification (only the owning user may delete). |

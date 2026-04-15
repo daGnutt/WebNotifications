@@ -168,7 +168,7 @@ Consecutive messages from the same sender are visually grouped (avatar and name 
 
 #### `POST /api/notifications`
 
-Store a new notification and immediately fan out web-push messages to all push subscriptions belonging to the user.
+Receive a new notification, store it in memory, and immediately fan out web-push messages to all push subscriptions belonging to the user.
 
 **Request body**
 
@@ -192,7 +192,6 @@ Store a new notification and immediately fan out web-push messages to all push s
 |--------|----------------------|---------------------------------|
 | `200`  | Success              | `{ success: true, id: "<id>" }` |
 | `401`  | Missing/invalid userId | `{ success: false, error }`   |
-| `500`  | Server error         | `{ success: false, error }`     |
 
 ---
 
@@ -218,7 +217,7 @@ Delete a notification. Only the owning user can delete their own notifications.
 |--------|-------------------------|---------------------------------|
 | `200`  | Deleted successfully    | `{ success: true }`             |
 | `401`  | Missing/invalid userId  | `{ success: false, error }`     |
-| `500`  | Server error            | `{ success: false, error }`     |
+| `404`  | Notification not found  | `{ success: false, error }`     |
 
 ---
 
@@ -274,7 +273,6 @@ Acknowledge that the Android app has successfully dispatched the recorded action
 | `400`  | No action recorded to ack      | `{ success: false, error }`     |
 | `401`  | Missing/invalid userId         | `{ success: false, error }`     |
 | `404`  | Notification not found         | `{ success: false, error }`     |
-| `500`  | Server error                   | `{ success: false, error }`     |
 
 ---
 
@@ -495,6 +493,7 @@ All error responses share a common shape:
 
 ## Notes
 
+- **Notifications are stored in memory only** — they are lost when the server restarts. The Android sender app is expected to resend notifications after a restart.
 - Users inactive for **30 days** are automatically pruned along with all their notifications, push subscriptions, and FCM device tokens.
 - Expired push subscriptions (HTTP 410 from the push service) are removed automatically when a push delivery fails.
 - FCM device tokens that return `registration-token-not-registered` or `invalid-registration-token` are removed automatically.

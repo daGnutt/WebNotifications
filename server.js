@@ -45,6 +45,9 @@ const PORT = process.env.PORT || 3000;
 // SSE clients: userId -> Set of response objects
 const sseClients = new Map();
 
+// In-memory notifications store: userId -> notification[]
+const notificationsStore = new Map();
+
 function broadcastToUser(userId, event, data) {
   const clients = sseClients.get(userId);
   if (!clients || clients.size === 0) return;
@@ -66,11 +69,11 @@ function disconnectSseClients(userId) {
 
 // Delete a user and all their associated data from every table.
 function purgeUser(userId, callback) {
+  notificationsStore.delete(userId);
   db.serialize(() => {
     db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
     db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId]);
     db.run('DELETE FROM device_tokens      WHERE user_id = ?', [userId]);
-    db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
     db.run('DELETE FROM users              WHERE user_id = ?', [userId], callback);
   });
 }
@@ -122,19 +125,6 @@ function initializeDatabase() {
     db.run(`ALTER TABLE users ADD COLUMN show_app_name INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN hidden_apps TEXT DEFAULT NULL`, () => {});
     
-    // Create notifications table with user_id
-    db.run(`
-      CREATE TABLE IF NOT EXISTS notifications (
-        id TEXT PRIMARY KEY,
-        user_id TEXT,
-        title TEXT,
-        body TEXT,
-        timestamp TEXT,
-        data TEXT,
-        FOREIGN KEY (user_id) REFERENCES users(user_id)
-      )
-    `);
-    
     // Create push_subscriptions table with user_id
     db.run(`
       CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -168,31 +158,34 @@ function initializeDatabase() {
   });
 }
 
-// Database helper functions
+// In-memory notification helpers
 function getAllNotifications(userId, callback) {
-  if (userId) {
-    db.all('SELECT * FROM notifications WHERE user_id = ? ORDER BY timestamp DESC', [userId], callback);
-  } else {
-    db.all('SELECT * FROM notifications ORDER BY timestamp DESC', callback);
-  }
+  const notifications = userId
+    ? (notificationsStore.get(userId) || [])
+    : Array.from(notificationsStore.values()).flat();
+  const sorted = [...notifications].sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+  callback(null, sorted);
 }
 
 function addNotification(notification, userId, callback) {
-  const stmt = db.prepare(
-    'INSERT INTO notifications (id, user_id, title, body, timestamp, data) VALUES (?, ?, ?, ?, ?, ?)'
-  );
-  stmt.run([
-    notification.id,
-    userId || null,
-    notification.title,
-    notification.body,
-    notification.timestamp,
-    JSON.stringify(notification)
-  ], function(err) {
-    if (err) console.error('Error adding notification:', err.message);
-    if (callback) callback(err, this);
-  });
-  stmt.finalize();
+  const key = userId || '__anonymous__';
+  if (!notificationsStore.has(key)) notificationsStore.set(key, []);
+  notificationsStore.get(key).unshift(notification);
+  if (callback) callback(null);
+}
+
+function deleteNotification(userId, id) {
+  const notifications = notificationsStore.get(userId);
+  if (!notifications) return false;
+  const idx = notifications.findIndex(n => n.id === id);
+  if (idx === -1) return false;
+  notifications.splice(idx, 1);
+  return true;
+}
+
+function getNotification(userId, id) {
+  const notifications = notificationsStore.get(userId);
+  return notifications ? notifications.find(n => n.id === id) : null;
 }
 
 // Password hashing helpers (using built-in crypto — no extra deps)
@@ -245,13 +238,6 @@ function getUserByUsername(username, callback) {
 function updateUserLastActive(userId, callback) {
   db.run('UPDATE users SET last_active = ? WHERE user_id = ?', [new Date().toISOString(), userId], function(err) {
     if (err) console.error('Error updating user last active:', err.message);
-    if (callback) callback(err, this);
-  });
-}
-
-function deleteNotification(id, callback) {
-  db.run('DELETE FROM notifications WHERE id = ?', [id], function(err) {
-    if (err) console.error('Error deleting notification:', err.message);
     if (callback) callback(err, this);
   });
 }
@@ -365,13 +351,8 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   // Add unique ID
   notification.id = Date.now().toString();
 
-  // Store notification in database
-  addNotification(notification, userId, (err) => {
-    if (err) {
-      console.error('Error storing notification:', err);
-      return res.status(500).json({ success: false, error: 'Failed to store notification' });
-    }
-
+  // Store notification in memory
+  addNotification(notification, userId, () => {
     console.log('Received notification:', notification);
 
     // Broadcast to any open SSE connections for this user
@@ -384,7 +365,7 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
       })
       .catch((error) => {
         console.error('Error sending push notifications:', error);
-        res.status(200).json({ success: true, id: notification.id }); // Still return success for notification storage
+        res.status(200).json({ success: true, id: notification.id });
       });
   });
 });
@@ -470,26 +451,11 @@ app.get('/api/vapid-public-key', (req, res) => {
 
 // API Endpoint to get all notifications
 app.get('/api/notifications', requireUserId, (req, res) => {
-  getAllNotifications(req.user.user_id, (err, rows) => {
+  getAllNotifications(req.user.user_id, (err, notifications) => {
     if (err) {
       console.error('Error fetching notifications:', err);
       return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
     }
-    
-    // Parse the stored JSON data
-    const notifications = rows.map(row => {
-      try {
-        return JSON.parse(row.data);
-      } catch (e) {
-        return {
-          id: row.id,
-          title: row.title,
-          body: row.body,
-          timestamp: row.timestamp
-        };
-      }
-    });
-    
     res.status(200).json(notifications);
   });
 });
@@ -524,17 +490,14 @@ app.get('/api/notifications/stream', requireUserId, (req, res) => {
 app.delete('/api/notifications/:id', requireUserId, (req, res) => {
   const id = req.params.id;
   const userId = req.user.user_id;
-  // Only delete if the notification belongs to this user
-  db.run('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, userId], function(err) {
-    if (err) {
-      console.error('Error deleting notification:', err);
-      return res.status(500).json({ success: false, error: 'Failed to delete notification' });
-    }
-    broadcastToUser(userId, 'update', { reason: 'delete', id });
-    sendFcmDataMessages(userId, { type: 'dismiss', notificationId: id })
-      .catch(e => console.error('FCM dismiss error:', e.message));
-    res.status(200).json({ success: true });
-  });
+  const deleted = deleteNotification(userId, id);
+  if (!deleted) {
+    return res.status(404).json({ success: false, error: 'Notification not found' });
+  }
+  broadcastToUser(userId, 'update', { reason: 'delete', id });
+  sendFcmDataMessages(userId, { type: 'dismiss', notificationId: id })
+    .catch(e => console.error('FCM dismiss error:', e.message));
+  res.status(200).json({ success: true });
 });
 
 // API Endpoint to store push subscription
@@ -577,12 +540,7 @@ app.post('/api/send-push', requireUserId, async (req, res) => {
     id: Date.now().toString()
   };
 
-  addNotification(notification, userId, (err) => {
-    if (err) {
-      console.error('Error storing notification:', err);
-      return res.status(500).json({ success: false, error: 'Failed to store notification' });
-    }
-
+  addNotification(notification, userId, () => {
     broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
 
     sendPushNotifications(notification, userId)
@@ -605,28 +563,21 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
 
   console.log(`Action '${action}' performed on notification ${id} with response:`, response);
 
-  db.get('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
-    if (err || !row) {
-      return res.status(404).json({ success: false, error: 'Notification not found' });
-    }
+  const notification = getNotification(userId, id);
+  if (!notification) {
+    return res.status(404).json({ success: false, error: 'Notification not found' });
+  }
 
-    let data = {};
-    try { data = JSON.parse(row.data); } catch (e) {}
-    data.actionTaken = action;
-    data.actionResponse = response;
-    delete data.actionDispatched;
+  notification.actionTaken = action;
+  notification.actionResponse = response;
+  delete notification.actionDispatched;
 
-    db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
-      if (updateErr) console.error('Error updating notification action:', updateErr.message);
-      const userId = req.user.user_id;
-      broadcastToUser(userId, 'update', { reason: 'action', id });
-      const fcmPayload = { type: 'action', notificationId: id, actionTaken: String(action) };
-      if (response != null) fcmPayload.actionResponse = String(response);
-      sendFcmDataMessages(userId, fcmPayload)
-        .catch(e => console.error('FCM action error:', e.message));
-      res.status(200).json({ success: true });
-    });
-  });
+  broadcastToUser(userId, 'update', { reason: 'action', id });
+  const fcmPayload = { type: 'action', notificationId: id, actionTaken: String(action) };
+  if (response != null) fcmPayload.actionResponse = String(response);
+  sendFcmDataMessages(userId, fcmPayload)
+    .catch(e => console.error('FCM action error:', e.message));
+  res.status(200).json({ success: true });
 });
 
 // API Endpoint for the Android endpoint app to acknowledge it has dispatched an action.
@@ -635,29 +586,18 @@ app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) 
   const id = req.params.id;
   const userId = req.user.user_id;
 
-  db.get('SELECT * FROM notifications WHERE id = ? AND user_id = ?', [id, userId], (err, row) => {
-    if (err || !row) {
-      return res.status(404).json({ success: false, error: 'Notification not found' });
-    }
+  const notification = getNotification(userId, id);
+  if (!notification) {
+    return res.status(404).json({ success: false, error: 'Notification not found' });
+  }
 
-    let data = {};
-    try { data = JSON.parse(row.data); } catch (e) {}
+  if (!notification.actionTaken) {
+    return res.status(400).json({ success: false, error: 'No action to acknowledge' });
+  }
 
-    if (!data.actionTaken) {
-      return res.status(400).json({ success: false, error: 'No action to acknowledge' });
-    }
-
-    data.actionDispatched = true;
-
-    db.run('UPDATE notifications SET data = ? WHERE id = ?', [JSON.stringify(data), id], (updateErr) => {
-      if (updateErr) {
-        console.error('Error acknowledging action dispatch:', updateErr.message);
-        return res.status(500).json({ success: false, error: 'Database error' });
-      }
-      broadcastToUser(userId, 'update', { reason: 'action', id });
-      res.status(200).json({ success: true });
-    });
-  });
+  notification.actionDispatched = true;
+  broadcastToUser(userId, 'update', { reason: 'action', id });
+  res.status(200).json({ success: true });
 });
 
 // User management API endpoints
@@ -851,13 +791,8 @@ app.delete('/api/users/:userId', requireUserId, (req, res) => {
 app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {  if (req.params.userId !== req.user.user_id) {
     return res.status(403).json({ success: false, error: 'Forbidden' });
   }
-  getAllNotifications(req.user.user_id, (err, rows) => {
+  getAllNotifications(req.user.user_id, (err, notifications) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
-    const notifications = rows.map(row => {
-      try { return JSON.parse(row.data); } catch (e) {
-        return { id: row.id, title: row.title, body: row.body, timestamp: row.timestamp };
-      }
-    });
     res.status(200).json(notifications);
   });
 });
@@ -873,12 +808,12 @@ function pruneInactiveUsers() {
   db.all('SELECT user_id FROM users WHERE last_active < ?', [cutoff], (err, rows) => {
     if (err || !rows.length) return;
     const ids = rows.map(r => r.user_id);
+    ids.forEach(id => notificationsStore.delete(id));
     const placeholders = ids.map(() => '?').join(',');
     db.serialize(() => {
       db.run(`DELETE FROM reset_codes       WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM push_subscriptions WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM device_tokens      WHERE user_id IN (${placeholders})`, ids);
-      db.run(`DELETE FROM notifications      WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM users              WHERE user_id IN (${placeholders})`, ids, (delErr) => {
         if (!delErr) console.log(`Pruned ${ids.length} inactive user(s) (last active before ${cutoff})`);
       });
