@@ -653,6 +653,15 @@
                     </span>
                 </div>
 
+                <!-- FCM sync status -->
+                <div>
+                    <p class="flyout-section-title">Android Sync</p>
+                    <div class="flyout-pref-row" id="fcm-status-row" style="gap:8px">
+                        <span id="fcm-status-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--border-color)"></span>
+                        <span id="fcm-status-label" style="font-size:12px;opacity:0.7">Checking…</span>
+                    </div>
+                </div>
+
                 <!-- Preferences -->
                 <div>
                     <p class="flyout-section-title">Preferences</p>
@@ -824,6 +833,7 @@ function connectSSE(userId) {
             subscribeToPushNotifications();
             fetchNotifications();
             connectSSE(user.userId);
+            refreshFcmStatus();
             closeFlyout();
         }
 
@@ -870,6 +880,29 @@ function connectSSE(userId) {
             });
         }
 
+        async function refreshFcmStatus() {
+            if (!currentUser) return;
+            const dot = document.getElementById('fcm-status-dot');
+            const label = document.getElementById('fcm-status-label');
+            try {
+                const res = await fetch(`/api/fcm/status?userId=${encodeURIComponent(currentUser.userId)}`);
+                const data = await res.json();
+                if (!data.configured) {
+                    dot.style.background = '#888';
+                    label.textContent = 'FCM not configured on server';
+                } else if (data.deviceCount === 0) {
+                    dot.style.background = '#f0a500';
+                    label.textContent = 'No Android devices registered';
+                } else {
+                    dot.style.background = '#4caf50';
+                    label.textContent = `Active — ${data.deviceCount} device${data.deviceCount !== 1 ? 's' : ''}`;
+                }
+            } catch {
+                dot.style.background = '#e53935';
+                label.textContent = 'Could not check FCM status';
+            }
+        }
+
         function logout() {
             disconnectSSE();
             currentUser = null;
@@ -878,6 +911,11 @@ function connectSSE(userId) {
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
             document.body.classList.remove('show-app-name');
+
+            const dot = document.getElementById('fcm-status-dot');
+            const lbl = document.getElementById('fcm-status-label');
+            dot.style.background = 'var(--border-color)';
+            lbl.textContent = 'Checking…';
 
             document.getElementById('login-form').style.display = 'flex';
             document.getElementById('username-input').value = '';

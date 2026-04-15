@@ -316,6 +316,29 @@ The body must be a valid [PushSubscription](https://developer.mozilla.org/en-US/
 
 ---
 
+#### `GET /api/fcm/status`
+
+Returns the FCM health for the authenticated user: whether the server has FCM configured, and how many Android devices have registered tokens.
+
+**Query parameters**
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| `userId` | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description             | Body                                                          |
+|--------|-------------------------|---------------------------------------------------------------|
+| `200`  | OK                      | `{ success: true, configured: bool, deviceCount: number }`   |
+| `401`  | Missing/invalid userId  | `{ success: false, error }`                                   |
+| `500`  | Server error            | `{ success: false, error }`                                   |
+
+- `configured`: `true` if `secrets.fcm.serviceAccount` is set and the Firebase Admin SDK initialised successfully.
+- `deviceCount`: number of FCM device tokens currently registered for the user.
+
+---
+
 #### `POST /api/device-tokens`
 
 Register an FCM device token for the authenticated user. Uses `INSERT OR REPLACE`, so re-registering the same token is safe. FCM data messages are sent to all registered tokens when the user dismisses a notification or records an action.

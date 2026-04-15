@@ -797,6 +797,19 @@ app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {  if (
   });
 });
 
+// GET /api/fcm/status — FCM health for the authenticated user
+app.get('/api/fcm/status', requireUserId, (req, res) => {
+  const userId = req.user.user_id;
+  getDeviceTokens(userId, (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: 'DB error' });
+    res.status(200).json({
+      success: true,
+      configured: !!fcmAdmin,
+      deviceCount: rows.length
+    });
+  });
+});
+
 // Serve HTML page
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
