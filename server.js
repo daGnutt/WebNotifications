@@ -42,26 +42,26 @@ if (fcmConfig.serviceAccount) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// SSE clients: userId -> Set of response objects
+// SSE clients: userId -> Map<sessionId, response>
 const sseClients = new Map();
 
 // In-memory notifications store: userId -> notification[]
 const notificationsStore = new Map();
 
 function broadcastToUser(userId, event, data) {
-  const clients = sseClients.get(userId);
-  if (!clients || clients.size === 0) return;
+  const sessions = sseClients.get(userId);
+  if (!sessions || sessions.size === 0) return;
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
-  for (const res of clients) {
+  for (const res of sessions.values()) {
     res.write(payload);
   }
 }
 
 // Close and remove all open SSE connections for a user.
 function disconnectSseClients(userId) {
-  const clients = sseClients.get(userId);
-  if (!clients) return;
-  for (const res of clients) {
+  const sessions = sseClients.get(userId);
+  if (!sessions) return;
+  for (const res of sessions.values()) {
     try { res.end(); } catch (_) {}
   }
   sseClients.delete(userId);
@@ -74,6 +74,7 @@ function purgeUser(userId, callback) {
     db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
     db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId]);
     db.run('DELETE FROM device_tokens      WHERE user_id = ?', [userId]);
+    db.run('DELETE FROM browser_sessions   WHERE user_id = ?', [userId]);
     db.run('DELETE FROM users              WHERE user_id = ?', [userId], callback);
   });
 }
@@ -152,6 +153,18 @@ function initializeDatabase() {
         fcm_token TEXT PRIMARY KEY,
         user_id TEXT NOT NULL,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+      )
+    `);
+
+    // Browser sessions — one row per logged-in browser profile
+    db.run(`
+      CREATE TABLE IF NOT EXISTS browser_sessions (
+        session_id TEXT PRIMARY KEY,
+        user_id TEXT NOT NULL,
+        browser_label TEXT,
+        created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+        last_active TEXT,
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
     `);
@@ -293,6 +306,35 @@ function deleteDeviceToken(token, callback) {
     if (err) console.error('Error deleting device token:', err.message);
     if (callback) callback(err, this);
   });
+}
+
+// Browser session helpers
+function createOrRefreshSession(sessionId, userId, browserLabel, callback) {
+  db.run(
+    `INSERT INTO browser_sessions (session_id, user_id, browser_label, created_at, last_active)
+     VALUES (?, ?, ?, ?, ?)
+     ON CONFLICT(session_id) DO UPDATE SET last_active = excluded.last_active, browser_label = excluded.browser_label`,
+    [sessionId, userId, browserLabel || 'Unknown browser', new Date().toISOString(), new Date().toISOString()],
+    function(err) {
+      if (err) console.error('Error creating/refreshing session:', err.message);
+      if (callback) callback(err, this);
+    }
+  );
+}
+
+function getSessionsForUser(userId, callback) {
+  db.all('SELECT session_id, browser_label, created_at, last_active FROM browser_sessions WHERE user_id = ? ORDER BY last_active DESC', [userId], callback);
+}
+
+function deleteSession(sessionId, callback) {
+  db.run('DELETE FROM browser_sessions WHERE session_id = ?', [sessionId], function(err) {
+    if (err) console.error('Error deleting session:', err.message);
+    if (callback) callback(err, this);
+  });
+}
+
+function getSession(sessionId, callback) {
+  db.get('SELECT * FROM browser_sessions WHERE session_id = ?', [sessionId], callback);
 }
 
 // Middleware — all data endpoints require a valid userId
@@ -463,15 +505,17 @@ app.get('/api/notifications', requireUserId, (req, res) => {
 // SSE endpoint — keeps connection open and pushes update events to the browser
 app.get('/api/notifications/stream', requireUserId, (req, res) => {
   const userId = req.user.user_id;
+  const sessionId = req.query.sessionId || null;
 
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');
   res.flushHeaders();
 
-  // Register this client
-  if (!sseClients.has(userId)) sseClients.set(userId, new Set());
-  sseClients.get(userId).add(res);
+  // Register this client keyed by sessionId (or a fallback UUID for anonymous tabs)
+  const clientKey = sessionId || uuidv4();
+  if (!sseClients.has(userId)) sseClients.set(userId, new Map());
+  sseClients.get(userId).set(clientKey, res);
 
   // Send an initial heartbeat so the browser knows it's connected
   res.write('event: connected\ndata: {}\n\n');
@@ -481,7 +525,7 @@ app.get('/api/notifications/stream', requireUserId, (req, res) => {
 
   req.on('close', () => {
     clearInterval(heartbeat);
-    sseClients.get(userId)?.delete(res);
+    sseClients.get(userId)?.delete(clientKey);
     if (sseClients.get(userId)?.size === 0) sseClients.delete(userId);
   });
 });
@@ -770,9 +814,21 @@ app.get('/api/users/:userId', requireUserId, (req, res) => {
   if (req.params.userId !== req.user.user_id) {
     return res.status(403).json({ success: false, error: 'Forbidden' });
   }
-  updateUserLastActive(req.user.user_id, () => {});
-  const { password_hash, ...safeUser } = req.user;
-  res.status(200).json(safeUser);
+  const sessionId = req.query.sessionId || null;
+  const respond = () => {
+    updateUserLastActive(req.user.user_id, () => {});
+    const { password_hash, ...safeUser } = req.user;
+    res.status(200).json(safeUser);
+  };
+  if (sessionId) {
+    getSession(sessionId, (err, session) => {
+      if (err) return res.status(500).json({ success: false, error: 'Database error' });
+      if (!session) return res.status(401).json({ success: false, error: 'session_revoked' });
+      respond();
+    });
+  } else {
+    respond();
+  }
 });
 
 app.delete('/api/users/:userId', requireUserId, (req, res) => {
@@ -794,6 +850,58 @@ app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {  if (
   getAllNotifications(req.user.user_id, (err, notifications) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
     res.status(200).json(notifications);
+  });
+});
+
+// Browser session endpoints
+
+// POST /api/sessions — register or refresh a browser session
+app.post('/api/sessions', requireUserId, (req, res) => {
+  const { sessionId, browserLabel } = req.body;
+  if (!sessionId) return res.status(400).json({ success: false, error: 'sessionId is required' });
+  createOrRefreshSession(sessionId, req.user.user_id, browserLabel, (err) => {
+    if (err) return res.status(500).json({ success: false, error: 'Failed to register session' });
+    res.status(200).json({ success: true });
+  });
+});
+
+// GET /api/users/:userId/sessions — list all browser sessions for the user
+app.get('/api/users/:userId/sessions', requireUserId, (req, res) => {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  getSessionsForUser(req.user.user_id, (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: 'DB error' });
+    res.status(200).json({ success: true, sessions: rows });
+  });
+});
+
+// DELETE /api/sessions/:sessionId — revoke a session; push logout event if connected
+app.delete('/api/sessions/:sessionId', requireUserId, (req, res) => {
+  const sessionId = req.params.sessionId;
+  const userId = req.user.user_id;
+  // Verify the session belongs to this user before deleting
+  getSession(sessionId, (err, session) => {
+    if (err) return res.status(500).json({ success: false, error: 'DB error' });
+    if (!session) return res.status(404).json({ success: false, error: 'Session not found' });
+    if (session.user_id !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
+    deleteSession(sessionId, (delErr) => {
+      if (delErr) return res.status(500).json({ success: false, error: 'Failed to delete session' });
+      // Push a logout event to that specific SSE connection if it's open
+      const userSessions = sseClients.get(userId);
+      if (userSessions) {
+        const targetRes = userSessions.get(sessionId);
+        if (targetRes) {
+          try {
+            targetRes.write(`event: logout\ndata: ${JSON.stringify({ sessionId })}\n\n`);
+            targetRes.end();
+          } catch (_) {}
+          userSessions.delete(sessionId);
+          if (userSessions.size === 0) sseClients.delete(userId);
+        }
+      }
+      res.status(200).json({ success: true });
+    });
   });
 });
 
@@ -824,13 +932,18 @@ function pruneInactiveUsers() {
     ids.forEach(id => notificationsStore.delete(id));
     const placeholders = ids.map(() => '?').join(',');
     db.serialize(() => {
-      db.run(`DELETE FROM reset_codes       WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM reset_codes        WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM push_subscriptions WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM device_tokens      WHERE user_id IN (${placeholders})`, ids);
+      db.run(`DELETE FROM browser_sessions   WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM users              WHERE user_id IN (${placeholders})`, ids, (delErr) => {
         if (!delErr) console.log(`Pruned ${ids.length} inactive user(s) (last active before ${cutoff})`);
       });
     });
+  });
+  // Also prune browser sessions older than 30 days (regardless of user activity)
+  db.run(`DELETE FROM browser_sessions WHERE last_active < ?`, [cutoff], function(err) {
+    if (!err && this.changes > 0) console.log(`Pruned ${this.changes} stale browser session(s)`);
   });
 }
 

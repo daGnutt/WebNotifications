@@ -406,18 +406,19 @@ Get the authenticated user's own profile. Updates `last_active` on each call. **
 
 **Query parameters**
 
-| Parameter | Type   | Required | Description |
-|-----------|--------|----------|-------------|
-| `userId`  | string | Yes      | User UUID   |
+| Parameter   | Type   | Required | Description                                                                 |
+|-------------|--------|----------|-----------------------------------------------------------------------------|
+| `userId`    | string | Yes      | User UUID                                                                   |
+| `sessionId` | string | No       | Browser session UUID. If provided and not found in DB, returns `401 session_revoked`. |
 
 **Responses**
 
-| Status | Description              | Body                                                    |
-|--------|--------------------------|---------------------------------------------------------|
-| `200`  | Success                  | `{ user_id, username, email, created_at, last_active }` |
-| `401`  | Missing/invalid userId   | `{ success: false, error }`                             |
-| `403`  | Forbidden (wrong user)   | `{ success: false, error }`                             |
-| `500`  | Server error             | `{ success: false, error }`                             |
+| Status | Description                      | Body                                                    |
+|--------|----------------------------------|---------------------------------------------------------|
+| `200`  | Success                          | `{ user_id, username, email, created_at, last_active }` |
+| `401`  | Missing/invalid userId or session revoked | `{ success: false, error }` (error is `"session_revoked"` when session was deleted) |
+| `403`  | Forbidden (wrong user)           | `{ success: false, error }`                             |
+| `500`  | Server error                     | `{ success: false, error }`                             |
 
 ---
 
@@ -503,6 +504,74 @@ Update user preferences. The path `:userId` must match the authenticated `userId
 
 ---
 
+### Browser Sessions
+
+#### `POST /api/sessions`
+
+Register or refresh a browser session. Call this after login and after a successful `restoreSession`. Updates `last_active` if the session already exists.
+
+**Request body**
+
+| Field          | Type   | Required | Description                                     |
+|----------------|--------|----------|-------------------------------------------------|
+| `userId`       | string | Yes      | User UUID                                       |
+| `sessionId`    | string | Yes      | Browser session UUID (generated client-side and persisted in `localStorage`) |
+| `browserLabel` | string | No       | Human-readable browser/OS label (e.g. `"Chrome on Windows"`) |
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | Registered/refreshed     | `{ success: true }`         |
+| `400`  | Missing `sessionId`      | `{ success: false, error }` |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+| `500`  | Server error             | `{ success: false, error }` |
+
+---
+
+#### `GET /api/users/:userId/sessions`
+
+List all active browser sessions for the authenticated user, ordered by most recently active first.
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description              | Body                                                                         |
+|--------|--------------------------|------------------------------------------------------------------------------|
+| `200`  | Success                  | `{ success: true, sessions: [{ session_id, browser_label, created_at, last_active }] }` |
+| `401`  | Missing/invalid userId   | `{ success: false, error }`                                                  |
+| `403`  | Forbidden (wrong user)   | `{ success: false, error }`                                                  |
+| `500`  | Server error             | `{ success: false, error }`                                                  |
+
+---
+
+#### `DELETE /api/sessions/:sessionId`
+
+Revoke a browser session. The session must belong to the authenticated user. If the target session has an open SSE connection, a `logout` event is pushed to it immediately.
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | Session revoked          | `{ success: true }`         |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+| `403`  | Forbidden (session belongs to another user) | `{ success: false, error }` |
+| `404`  | Session not found        | `{ success: false, error }` |
+| `500`  | Server error             | `{ success: false, error }` |
+
+---
+
 ## Error Format
 
 All error responses share a common shape:
@@ -517,7 +586,8 @@ All error responses share a common shape:
 ## Notes
 
 - **Notifications are stored in memory only** — they are lost when the server restarts. The Android sender app is expected to resend notifications after a restart.
-- Users inactive for **30 days** are automatically pruned along with all their notifications, push subscriptions, and FCM device tokens.
+- Users inactive for **30 days** are automatically pruned along with all their notifications, push subscriptions, FCM device tokens, and browser sessions.
+- Browser sessions inactive for **30 days** are pruned independently of user activity.
 - Expired push subscriptions (HTTP 410 from the push service) are removed automatically when a push delivery fails.
 - FCM device tokens that return `registration-token-not-registered` or `invalid-registration-token` are removed automatically.
 - VAPID keys are static. If they are rotated, all stored push subscriptions must be cleared.

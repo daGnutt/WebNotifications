@@ -671,6 +671,14 @@
                     </label>
                 </div>
 
+                <!-- Browser Sessions -->
+                <div>
+                    <p class="flyout-section-title">Browser Sessions</p>
+                    <div id="sessions-list" style="display:flex;flex-direction:column;gap:2px">
+                        <span style="font-size:12px;opacity:0.6">Sign in to see sessions.</span>
+                    </div>
+                </div>
+
                 <!-- Actions -->
                 <div class="flyout-actions">
                     <div class="btn-row">
@@ -712,6 +720,37 @@
         const HEADS_UP_MS = 2000;
         let sseConnection = null;
         let sseFallbackInterval = null;
+        let currentSessionId = null;
+
+        function detectBrowserLabel() {
+            const ua = navigator.userAgent;
+            let browser = 'Browser';
+            if (/Edg\//.test(ua))          browser = 'Edge';
+            else if (/OPR\/|Opera\//.test(ua)) browser = 'Opera';
+            else if (/Chrome\//.test(ua))  browser = 'Chrome';
+            else if (/Firefox\//.test(ua)) browser = 'Firefox';
+            else if (/Safari\//.test(ua))  browser = 'Safari';
+            let os = '';
+            if (/Android/.test(ua))        os = ' on Android';
+            else if (/iPhone|iPad/.test(ua)) os = ' on iOS';
+            else if (/Windows/.test(ua))   os = ' on Windows';
+            else if (/Mac OS X/.test(ua))  os = ' on macOS';
+            else if (/Linux/.test(ua))     os = ' on Linux';
+            return browser + os;
+        }
+
+        function getOrCreateSessionId() {
+            let saved = localStorage.getItem('sessionId');
+            if (!saved) {
+                // Generate a UUID v4
+                saved = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+                    const r = Math.random() * 16 | 0;
+                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+                });
+                localStorage.setItem('sessionId', saved);
+            }
+            return saved;
+        }
 
         // ── User management ──────────────────────────────────────────────────
         async function loginOrRegister() {
@@ -787,9 +826,11 @@
 
 function connectSSE(userId) {
             disconnectSSE();
-            const url = `/api/notifications/stream?userId=${encodeURIComponent(userId)}`;
+            const sid = currentSessionId ? `&sessionId=${encodeURIComponent(currentSessionId)}` : '';
+            const url = `/api/notifications/stream?userId=${encodeURIComponent(userId)}${sid}`;
             sseConnection = new EventSource(url);
             sseConnection.addEventListener('update', (e) => handleSSEUpdate(e));
+            sseConnection.addEventListener('logout', () => logout());
             sseConnection.onerror = () => {
                 // EventSource auto-reconnects; also start a fallback poll in case SSE stays broken
                 if (!sseFallbackInterval) {
@@ -812,6 +853,7 @@ function connectSSE(userId) {
 
         function setCurrentUser(user) {
             currentUser = user;
+            currentSessionId = getOrCreateSessionId();
             localStorage.setItem('currentUser', JSON.stringify(user));
 
             // Parse hidden apps
@@ -829,6 +871,13 @@ function connectSSE(userId) {
             const showAppName = user.showAppName || false;
             document.body.classList.toggle('show-app-name', showAppName);
             document.getElementById('show-app-name-checkbox').checked = showAppName;
+
+            // Register this browser session with the server (fire-and-forget)
+            fetch('/api/sessions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ userId: user.userId, sessionId: currentSessionId, browserLabel: detectBrowserLabel() })
+            }).catch(() => {});
 
             subscribeToPushNotifications();
             fetchNotifications();
@@ -903,13 +952,94 @@ function connectSSE(userId) {
             }
         }
 
+        async function fetchSessions() {
+            if (!currentUser) return;
+            const list = document.getElementById('sessions-list');
+            if (!list) return;
+            list.innerHTML = '<span style="font-size:12px;opacity:0.6">Loading…</span>';
+            try {
+                const res = await fetch(`/api/users/${currentUser.userId}/sessions?userId=${encodeURIComponent(currentUser.userId)}`);
+                const data = await res.json();
+                if (!data.success || !data.sessions.length) {
+                    list.innerHTML = '<span style="font-size:12px;opacity:0.6">No active sessions found.</span>';
+                    return;
+                }
+                list.innerHTML = '';
+                data.sessions.forEach(s => {
+                    const isThis = s.session_id === currentSessionId;
+                    const age = formatRelativeTime(s.last_active);
+                    const row = document.createElement('div');
+                    row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border-color);font-size:12px';
+                    row.innerHTML = `
+                        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(s.browser_label || 'Unknown')}">${escHtml(s.browser_label || 'Unknown')}</span>
+                        ${isThis ? '<span style="font-size:10px;background:var(--accent-color,#4a9eff);color:#fff;border-radius:3px;padding:1px 5px;flex-shrink:0">this browser</span>' : ''}
+                        <span style="opacity:0.5;white-space:nowrap;flex-shrink:0">${escHtml(age)}</span>
+                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" ${isThis ? 'disabled title="Cannot log out current session here — use Sign Out"' : ''} onclick="revokeSession('${escHtml(s.session_id)}',this)">Log out</button>
+                    `;
+                    list.appendChild(row);
+                });
+            } catch {
+                list.innerHTML = '<span style="font-size:12px;color:#e53935">Failed to load sessions.</span>';
+            }
+        }
+
+        function formatRelativeTime(isoString) {
+            if (!isoString) return 'unknown';
+            const diff = Date.now() - new Date(isoString).getTime();
+            const mins = Math.floor(diff / 60000);
+            if (mins < 1) return 'just now';
+            if (mins < 60) return `${mins}m ago`;
+            const hours = Math.floor(mins / 60);
+            if (hours < 24) return `${hours}h ago`;
+            return `${Math.floor(hours / 24)}d ago`;
+        }
+
+        function escHtml(str) {
+            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+        }
+
+        async function revokeSession(sessionId, btn) {
+            if (!currentUser) return;
+            btn.disabled = true;
+            btn.textContent = '…';
+            try {
+                const res = await fetch(`/api/sessions/${encodeURIComponent(sessionId)}?userId=${encodeURIComponent(currentUser.userId)}`, {
+                    method: 'DELETE'
+                });
+                if (!res.ok) {
+                    const d = await res.json().catch(() => ({}));
+                    alert(d.error || 'Failed to log out session.');
+                    btn.disabled = false;
+                    btn.textContent = 'Log out';
+                    return;
+                }
+                btn.closest('div').remove();
+                const list = document.getElementById('sessions-list');
+                if (list && !list.children.length) {
+                    list.innerHTML = '<span style="font-size:12px;opacity:0.6">No active sessions found.</span>';
+                }
+            } catch {
+                alert('Failed to log out session.');
+                btn.disabled = false;
+                btn.textContent = 'Log out';
+            }
+        }
+
         function logout() {
             disconnectSSE();
+            // Unregister this browser session (fire-and-forget)
+            if (currentUser && currentSessionId) {
+                fetch(`/api/sessions/${encodeURIComponent(currentSessionId)}?userId=${encodeURIComponent(currentUser.userId)}`, {
+                    method: 'DELETE'
+                }).catch(() => {});
+            }
             currentUser = null;
+            currentSessionId = null;
             hiddenApps = new Set();
             allNotifications = [];
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
+            localStorage.removeItem('sessionId');
             document.body.classList.remove('show-app-name');
 
             const dot = document.getElementById('fcm-status-dot');
@@ -965,10 +1095,19 @@ function connectSSE(userId) {
             if (saved) {
                 try {
                     const user = JSON.parse(saved);
+                    const sessionId = localStorage.getItem('sessionId');
+                    const sessionParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
                     // Verify user still exists and fetch fresh preferences
-                    fetch(`/api/users/${user.userId}?userId=${encodeURIComponent(user.userId)}`)
+                    fetch(`/api/users/${user.userId}?userId=${encodeURIComponent(user.userId)}${sessionParam}`)
                         .then(async r => {
-                            if (!r.ok) return logout();
+                            if (!r.ok) {
+                                const body = await r.json().catch(() => ({}));
+                                if (body.error === 'session_revoked') {
+                                    // Session was remotely revoked — clear storage and show login
+                                    localStorage.removeItem('sessionId');
+                                }
+                                return logout();
+                            }
                             const fetched = await r.json();
                             setCurrentUser({
                                 userId: fetched.user_id,
@@ -1500,6 +1639,7 @@ function connectSSE(userId) {
             document.getElementById('flyout-backdrop').classList.add('visible');
             document.getElementById('fab-button').classList.add('flyout-open');
             document.getElementById('fab-button').title = 'Close';
+            fetchSessions();
         }
 
         function closeFlyout() {
