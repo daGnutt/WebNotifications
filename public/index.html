@@ -1342,6 +1342,8 @@ function connectSSE(userId) {
 
         function renderActions(notification) {
             if (!notification.actions || notification.actions.length === 0) return '';
+            // Hide buttons once an action has already been taken — matches Android behaviour
+            if (notification.actionTaken) return '';
             const nid = notification.id;
 
             const parts = notification.actions.map((action, i) => {

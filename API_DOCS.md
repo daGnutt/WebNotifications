@@ -199,6 +199,8 @@ Receive a new notification, store it in memory, and immediately fan out web-push
 
 Delete a notification. Only the owning user can delete their own notifications.
 
+**Important:** A notification whose action has been recorded (`actionTaken` is set) but not yet dispatched to the Android device (`actionDispatched` is falsy) cannot be deleted. This prevents the Android app from accidentally removing a notification before the action has been confirmed as handled. The Android app should only call DELETE when the user explicitly dismisses a notification — **not** after firing/dispatching an action.
+
 **Path parameters**
 
 | Parameter | Description         |
@@ -213,11 +215,12 @@ Delete a notification. Only the owning user can delete their own notifications.
 
 **Responses**
 
-| Status | Description             | Body                            |
-|--------|-------------------------|---------------------------------|
-| `200`  | Deleted successfully    | `{ success: true }`             |
-| `401`  | Missing/invalid userId  | `{ success: false, error }`     |
-| `404`  | Notification not found  | `{ success: false, error }`     |
+| Status | Description                                              | Body                            |
+|--------|----------------------------------------------------------|---------------------------------|
+| `200`  | Deleted successfully                                     | `{ success: true }`             |
+| `401`  | Missing/invalid userId                                   | `{ success: false, error }`     |
+| `404`  | Notification not found                                   | `{ success: false, error }`     |
+| `409`  | Action taken but not yet dispatched — deletion refused   | `{ success: false, error }`     |
 
 ---
 

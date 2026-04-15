@@ -572,6 +572,20 @@ app.get('/api/notifications/stream', requireUserId, (req, res) => {
 app.delete('/api/notifications/:id', requireUserId, (req, res) => {
   const id = req.params.id;
   const userId = req.user.user_id;
+
+  // Refuse to delete a notification whose action has been recorded but not yet
+  // dispatched to the Android device.  This prevents the Android app from
+  // accidentally wiping the notification before the web UI has reflected the
+  // action state — the Android app should only DELETE on explicit user dismiss,
+  // not after firing an intent/action.
+  const notification = getNotification(userId, id);
+  if (notification?.actionTaken && !notification?.actionDispatched) {
+    return res.status(409).json({
+      success: false,
+      error: 'Cannot delete a notification with a pending action that has not been dispatched yet'
+    });
+  }
+
   const deleted = deleteNotification(userId, id);
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Notification not found' });
