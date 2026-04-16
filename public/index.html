@@ -1204,6 +1204,10 @@ function connectSSE(userId) {
                         updateTitleWithCount();
                     }
 
+                    // If the page is hidden, defer the animation until it becomes visible.
+                    // The visibilitychange listener will call fetchNotifications() again at that point.
+                    if (document.visibilityState !== 'visible') return;
+
                     animateFaviconBell();
                     showHeadsUpBanner();
 
@@ -1735,6 +1739,14 @@ function connectSSE(userId) {
 
         window.addEventListener('blur', () => {
             if (focusTimer) { clearTimeout(focusTimer); focusTimer = null; }
+        });
+
+        // When the tab becomes visible again, immediately re-fetch so any
+        // notifications that arrived while hidden trigger the heads-up animation now.
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible' && currentUser) {
+                fetchNotifications();
+            }
         });
 
         // ── Bootstrap ────────────────────────────────────────────────────────

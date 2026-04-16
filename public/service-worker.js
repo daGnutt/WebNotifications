@@ -53,11 +53,10 @@ self.addEventListener('push', (event) => {
   
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
-      // Check if any client window is open (regardless of focus)
-      const hasOpenClient = clientList.length > 0;
+      // Show notification unless a window is actively focused
+      const hasFocusedClient = clientList.some(c => c.focused);
       
-      // Only show notification if no window is open at all
-      if (!hasOpenClient) {
+      if (!hasFocusedClient) {
         return self.registration.showNotification(data.title, {
           body: data.body,
           icon: '/favicon.svg',
