@@ -674,10 +674,6 @@
                         <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
                         Show app name on notifications
                     </label>
-                    <label class="flyout-pref-row">
-                        <input type="checkbox" id="demo-mode-checkbox" onchange="toggleDemoMode(this.checked)">
-                        Demo mode (blur notification text)
-                    </label>
                 </div>
 
                 <!-- Browser Sessions -->
@@ -726,7 +722,6 @@
         let pendingNotifications = null;   // staged while heads-up banner is showing
         let headsUpTimeout = null;
         let initialLoadDone = false;
-        let demoMode = false;
         const HEADS_UP_MS = 2000;
         let sseConnection = null;
         let sseFallbackInterval = null;
@@ -1098,12 +1093,6 @@ function connectSSE(userId) {
                     });
                 } catch (e) { console.error('Failed to save preference:', e); }
             }
-        }
-
-        function toggleDemoMode(checked) {
-            demoMode = checked;
-            document.body.classList.toggle('demo-mode', checked);
-            localStorage.setItem('demoMode', checked ? '1' : '0');
         }
 
         function restoreSession() {
@@ -1770,12 +1759,8 @@ function connectSSE(userId) {
         requestNotificationPermission();
         updateFavicon(0);
 
-        // Restore demo mode preference
-        const savedDemoMode = localStorage.getItem('demoMode') === '1';
-        if (savedDemoMode) {
-            demoMode = true;
+        if (new URLSearchParams(location.search).has('demo')) {
             document.body.classList.add('demo-mode');
-            document.getElementById('demo-mode-checkbox').checked = true;
         }
 
         restoreSession();
