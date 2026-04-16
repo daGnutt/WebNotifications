@@ -42,6 +42,22 @@ if (fcmConfig.serviceAccount) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Returns a shallow copy of obj with data URI strings replaced by a short summary.
+function sanitizeForLog(obj) {
+  const result = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (typeof value === 'string' && value.startsWith('data:')) {
+      const mimeEnd = value.indexOf(';');
+      const prefix = mimeEnd !== -1 ? value.slice(0, mimeEnd) : 'data:';
+      const sizeKb = Math.round(value.length / 1024);
+      result[key] = `${prefix};base64 ... ${sizeKb}KB Data`;
+    } else {
+      result[key] = value;
+    }
+  }
+  return result;
+}
+
 // SSE clients: userId -> Map<sessionId, response>
 const sseClients = new Map();
 
@@ -433,7 +449,7 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
 
   // Store notification in memory
   addNotification(notification, userId, () => {
-    console.log('Received notification:', notification);
+    console.log('Received notification:', sanitizeForLog(notification));
 
     // Broadcast to any open SSE connections for this user
     if (userId) broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
