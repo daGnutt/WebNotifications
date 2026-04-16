@@ -103,6 +103,11 @@
             display: none;
         }
         body.show-app-name .notification-app-name { display: inline; }
+        body.demo-mode .notification-title,
+        body.demo-mode .notification-body,
+        body.demo-mode .notification-app-name,
+        body.demo-mode .message-text,
+        body.demo-mode .message-sender { filter: blur(6px); user-select: none; }
         .notification-header {
             display: flex;
             justify-content: space-between;
@@ -669,6 +674,10 @@
                         <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
                         Show app name on notifications
                     </label>
+                    <label class="flyout-pref-row">
+                        <input type="checkbox" id="demo-mode-checkbox" onchange="toggleDemoMode(this.checked)">
+                        Demo mode (blur notification text)
+                    </label>
                 </div>
 
                 <!-- Browser Sessions -->
@@ -717,6 +726,7 @@
         let pendingNotifications = null;   // staged while heads-up banner is showing
         let headsUpTimeout = null;
         let initialLoadDone = false;
+        let demoMode = false;
         const HEADS_UP_MS = 2000;
         let sseConnection = null;
         let sseFallbackInterval = null;
@@ -1088,6 +1098,12 @@ function connectSSE(userId) {
                     });
                 } catch (e) { console.error('Failed to save preference:', e); }
             }
+        }
+
+        function toggleDemoMode(checked) {
+            demoMode = checked;
+            document.body.classList.toggle('demo-mode', checked);
+            localStorage.setItem('demoMode', checked ? '1' : '0');
         }
 
         function restoreSession() {
@@ -1753,6 +1769,15 @@ function connectSSE(userId) {
         registerServiceWorker();
         requestNotificationPermission();
         updateFavicon(0);
+
+        // Restore demo mode preference
+        const savedDemoMode = localStorage.getItem('demoMode') === '1';
+        if (savedDemoMode) {
+            demoMode = true;
+            document.body.classList.add('demo-mode');
+            document.getElementById('demo-mode-checkbox').checked = true;
+        }
+
         restoreSession();
 
         // If not logged in, still show all notifications (no SSE needed — no user-specific stream)
