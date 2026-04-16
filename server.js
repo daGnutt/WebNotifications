@@ -429,7 +429,7 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   }
 
   // Add unique ID
-  notification.id = Date.now().toString();
+  notification.id = uuidv4();
 
   // Store notification in memory
   addNotification(notification, userId, () => {
