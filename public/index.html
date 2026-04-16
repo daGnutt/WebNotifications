@@ -664,6 +664,7 @@
                     <div class="flyout-pref-row" id="fcm-status-row" style="gap:8px">
                         <span id="fcm-status-dot" style="width:8px;height:8px;border-radius:50%;flex-shrink:0;background:var(--border-color)"></span>
                         <span id="fcm-status-label" style="font-size:12px;opacity:0.7">Checking…</span>
+                        <button id="fcm-resync-btn" class="btn btn-secondary" style="margin-left:auto;padding:2px 8px;font-size:11px;display:none" onclick="triggerFcmResync()">Resync</button>
                     </div>
                 </div>
 
@@ -863,6 +864,7 @@ function connectSSE(userId) {
 
             // Parse hidden apps
             hiddenApps = new Set(Array.isArray(user.hiddenApps) ? user.hiddenApps : []);
+            syncHiddenAppsToServiceWorker();
 
             document.getElementById('login-form').style.display = 'none';
             document.getElementById('user-info').style.display = 'flex';
@@ -938,23 +940,47 @@ function connectSSE(userId) {
             if (!currentUser) return;
             const dot = document.getElementById('fcm-status-dot');
             const label = document.getElementById('fcm-status-label');
+            const resyncBtn = document.getElementById('fcm-resync-btn');
             try {
                 const res = await fetch(`/api/fcm/status?userId=${encodeURIComponent(currentUser.userId)}`);
                 const data = await res.json();
                 if (!data.configured) {
                     dot.style.background = '#888';
                     label.textContent = 'FCM not configured on server';
+                    resyncBtn.style.display = 'none';
                 } else if (data.deviceCount === 0) {
                     dot.style.background = '#f0a500';
                     label.textContent = 'No Android devices registered';
+                    resyncBtn.style.display = 'none';
                 } else {
                     dot.style.background = '#4caf50';
                     label.textContent = `Active — ${data.deviceCount} device${data.deviceCount !== 1 ? 's' : ''}`;
+                    resyncBtn.style.display = '';
                 }
             } catch {
                 dot.style.background = '#e53935';
                 label.textContent = 'Could not check FCM status';
+                resyncBtn.style.display = 'none';
             }
+        }
+
+        async function triggerFcmResync() {
+            if (!currentUser) return;
+            const btn = document.getElementById('fcm-resync-btn');
+            const label = document.getElementById('fcm-status-label');
+            btn.disabled = true;
+            btn.textContent = 'Syncing…';
+            try {
+                await fetch(`/api/fcm/resync?userId=${encodeURIComponent(currentUser.userId)}`, { method: 'POST' });
+                label.textContent = 'Resync sent — check your Android device';
+            } catch {
+                label.textContent = 'Resync failed';
+            }
+            setTimeout(() => {
+                btn.disabled = false;
+                btn.textContent = 'Resync';
+                refreshFcmStatus();
+            }, 3000);
         }
 
         async function fetchSessions() {
@@ -1152,10 +1178,16 @@ function connectSSE(userId) {
                 const { publicKey } = await vapidResponse.json();
 
                 const registration = await navigator.serviceWorker.ready;
-                const subscription = await registration.pushManager.subscribe({
-                    userVisibleOnly: true,
-                    applicationServerKey: urlBase64ToUint8Array(publicKey)
-                });
+
+                // Reuse the existing subscription when possible — only create a new one if none exists.
+                // This prevents a new DB entry and Mozilla push-service call on every page reload.
+                let subscription = await registration.pushManager.getSubscription();
+                if (!subscription) {
+                    subscription = await registration.pushManager.subscribe({
+                        userVisibleOnly: true,
+                        applicationServerKey: urlBase64ToUint8Array(publicKey)
+                    });
+                }
 
                 const payload = {
                     ...JSON.parse(JSON.stringify(subscription)),
@@ -1167,7 +1199,7 @@ function connectSSE(userId) {
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify(payload)
                 });
-                console.log('Push subscription stored for user:', currentUser?.username);
+                console.log('Push subscription registered for user:', currentUser?.username);
             } catch (error) {
                 console.error('Error subscribing to push notifications:', error);
             }
@@ -1180,6 +1212,16 @@ function connectSSE(userId) {
             const outputArray = new Uint8Array(rawData.length);
             for (let i = 0; i < rawData.length; ++i) outputArray[i] = rawData.charCodeAt(i);
             return outputArray;
+        }
+
+        // Send the current hiddenApps set to the service worker so it can suppress
+        // background push notifications for apps the user has chosen to hide.
+        async function syncHiddenAppsToServiceWorker() {
+            if (!navigator.serviceWorker?.controller) return;
+            navigator.serviceWorker.controller.postMessage({
+                type: 'set-hidden-apps',
+                hiddenApps: [...hiddenApps]
+            });
         }
 
         // ── Notifications ────────────────────────────────────────────────────
@@ -1268,7 +1310,7 @@ function connectSSE(userId) {
                             </div>
                             <div class="notification-time" data-timestamp="${notification.timestamp}">${relativeTime(notification.timestamp)}</div>
                         </div>
-                        ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${notification.body || ''}</div>`}
+                        ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${linkifyText(notification.body || '')}</div>`}
                         ${renderSentAction(notification)}
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
                         ${notification.actions ? renderActions(notification) : ''}
@@ -1386,6 +1428,13 @@ function connectSSE(userId) {
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        // HTML-escape text and then wrap any URLs in clickable <a> tags.
+        function linkifyText(text) {
+            if (!text) return '';
+            const escaped = escapeHtml(text);
+            return escaped.replace(/(https?:\/\/[^\s<>"]+)/g, '<a href="$1" target="_blank" rel="noopener">$1</a>');
         }
 
         function normalizeSenderIcon(icon) {
@@ -1716,6 +1765,7 @@ function connectSSE(userId) {
                 displayNotifications(allNotifications, new Set());
             }
 
+            syncHiddenAppsToServiceWorker();
             await saveHiddenApps();
         }
 

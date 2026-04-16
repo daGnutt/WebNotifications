@@ -342,6 +342,29 @@ Returns the FCM health for the authenticated user: whether the server has FCM co
 
 ---
 
+#### `POST /api/fcm/resync`
+
+Manually triggers a `resync` FCM data message to all Android devices registered for the authenticated user. This causes the Android app to re-POST any buffered notifications to the server. Useful when the server has restarted and lost its in-memory notification store, or when the user wants to force a sync.
+
+**Query parameters / body**
+
+| Field    | Type   | Required | Description |
+|----------|--------|----------|-------------|
+| `userId` | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description                    | Body                                     |
+|--------|--------------------------------|------------------------------------------|
+| `200`  | Resync sent (or 0 devices)     | `{ success: true, sent: number }`        |
+| `401`  | Missing/invalid userId         | `{ success: false, error }`              |
+| `503`  | FCM not configured on server   | `{ success: false, error }`              |
+| `500`  | Server error                   | `{ success: false, error }`              |
+
+- `sent`: the number of devices that were successfully reached.
+
+---
+
 #### `POST /api/device-tokens`
 
 Register an FCM device token for the authenticated user. Uses `INSERT OR REPLACE`, so re-registering the same token is safe. FCM data messages are sent to all registered tokens when the user dismisses a notification or records an action.

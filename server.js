@@ -314,18 +314,21 @@ function getAllPushSubscriptions(callback) {
 }
 
 function addPushSubscription(subscription, userId, callback) {
-  const stmt = db.prepare(
-    'INSERT OR REPLACE INTO push_subscriptions (endpoint, user_id, subscription_data) VALUES (?, ?, ?)'
-  );
-  stmt.run([
-    subscription.endpoint,
-    userId || null,
-    JSON.stringify(subscription)
-  ], function(err) {
-    if (err) console.error('Error adding push subscription:', err.message);
-    if (callback) callback(err, this);
+  // Check if the endpoint already exists so we can log new vs updated
+  db.get('SELECT endpoint FROM push_subscriptions WHERE endpoint = ?', [subscription.endpoint], (err, existing) => {
+    const stmt = db.prepare(
+      'INSERT OR REPLACE INTO push_subscriptions (endpoint, user_id, subscription_data) VALUES (?, ?, ?)'
+    );
+    stmt.run([
+      subscription.endpoint,
+      userId || null,
+      JSON.stringify(subscription)
+    ], function(runErr) {
+      if (runErr) console.error('Error adding push subscription:', runErr.message);
+      if (callback) callback(runErr, { isNew: !existing });
+    });
+    stmt.finalize();
   });
-  stmt.finalize();
 }
 
 function getPushSubscriptionsForUser(userId, callback) {
@@ -472,7 +475,8 @@ async function sendPushNotifications(notification, userId) {
     title: notification.title || 'New Notification',
     body: notification.body || '',
     id: notification.id,
-    timestamp: notification.timestamp
+    timestamp: notification.timestamp,
+    appName: notification.appName || null
   };
   
   // Get push subscriptions from database (filter by userId if provided)
@@ -606,6 +610,7 @@ app.delete('/api/notifications/:id', requireUserId, (req, res) => {
   if (!deleted) {
     return res.status(404).json({ success: false, error: 'Notification not found' });
   }
+  console.log(`Notification deleted: ${id} (user: ${userId})`);
   broadcastToUser(userId, 'update', { reason: 'delete', id });
   sendFcmDataMessages(userId, { type: 'dismiss', notificationId: id })
     .catch(e => console.error('FCM dismiss error:', e.message));
@@ -616,12 +621,16 @@ app.delete('/api/notifications/:id', requireUserId, (req, res) => {
 app.post('/api/subscribe', requireUserId, (req, res) => {
   const { userId, ...subscriptionData } = req.body;
   const subscription = subscriptionData;
-  addPushSubscription(subscription, req.user.user_id, (err) => {
+  addPushSubscription(subscription, req.user.user_id, (err, meta) => {
     if (err) {
       console.error('Error storing push subscription:', err);
       return res.status(500).json({ success: false, error: 'Failed to store subscription' });
     }
-    console.log('New push subscription stored:', subscription.endpoint);
+    if (meta?.isNew) {
+      console.log('New push subscription stored:', subscription.endpoint);
+    } else {
+      console.log('Push subscription refreshed (already known):', subscription.endpoint);
+    }
     res.status(200).json({ success: true });
   });
 });
@@ -729,6 +738,7 @@ app.post('/api/auth', async (req, res) => {
       // New user — register
       createUser(username, password, email, (createErr, newUser) => {
         if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
+        console.log(`User registered: ${username} (${newUser.userId})`);
         res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false } });
       });
     } else {
@@ -747,8 +757,12 @@ app.post('/api/auth', async (req, res) => {
       }
 
       const valid = await verifyPassword(password, user.password_hash).catch(() => false);
-      if (!valid) return res.status(401).json({ success: false, error: 'Incorrect password' });
+      if (!valid) {
+        console.log(`Login failed (wrong password): ${username}`);
+        return res.status(401).json({ success: false, error: 'Incorrect password' });
+      }
 
+      console.log(`User logged in: ${username} (${user.user_id})`);
       updateUserLastActive(user.user_id, () => {});
       res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name, hiddenApps: (() => { try { return user.hidden_apps ? JSON.parse(user.hidden_apps) : []; } catch { return []; } })() } });
     }
@@ -823,6 +837,7 @@ app.post('/api/auth/reset-confirm', (req, res) => {
       // Delete the old account and all associated data, then recreate
       purgeUser(user.user_id, (delErr) => {
         if (delErr) return res.status(500).json({ success: false, error: 'Failed to reset account' });
+        console.log(`Account reset: ${username} (old user_id: ${user.user_id})`);
         disconnectSseClients(user.user_id);
         createUser(username, newPassword, email, (createErr, newUser) => {
           if (createErr) return res.status(500).json({ success: false, error: 'Failed to recreate account' });
@@ -907,7 +922,7 @@ app.delete('/api/users/:userId', requireUserId, (req, res) => {
   const userId = req.user.user_id;
   purgeUser(userId, (err) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to delete account' });
-    console.log(`User ${userId} purged`);
+    console.log(`Account deleted: ${req.user.username} (${userId})`);
     disconnectSseClients(userId);
     res.status(200).json({ success: true });
   });
@@ -956,6 +971,7 @@ app.delete('/api/sessions/:sessionId', requireUserId, (req, res) => {
     if (session.user_id !== userId) return res.status(403).json({ success: false, error: 'Forbidden' });
     deleteSession(sessionId, (delErr) => {
       if (delErr) return res.status(500).json({ success: false, error: 'Failed to delete session' });
+      console.log(`Session revoked: ${sessionId} (user: ${userId})`);
       // Push a logout event to that specific SSE connection if it's open
       const userSessions = sseClients.get(userId);
       if (userSessions) {
@@ -984,6 +1000,37 @@ app.get('/api/fcm/status', requireUserId, (req, res) => {
       configured: !!fcmAdmin,
       deviceCount: rows.length
     });
+  });
+});
+
+// POST /api/fcm/resync — manually trigger a resync request to all registered Android devices
+app.post('/api/fcm/resync', requireUserId, async (req, res) => {
+  if (!fcmAdmin) return res.status(503).json({ success: false, error: 'FCM not configured' });
+  const userId = req.user.user_id;
+  getDeviceTokensForUser(userId, async (err, rows) => {
+    if (err) return res.status(500).json({ success: false, error: 'DB error' });
+    if (rows.length === 0) return res.status(200).json({ success: true, sent: 0 });
+    console.log(`Manual FCM resync requested by user ${userId} — ${rows.length} device(s)`);
+    const tokens = rows.map(r => r.fcm_token);
+    const results = await Promise.allSettled(
+      tokens.map(token => fcmAdmin.messaging().send({ token, data: { type: 'resync' } }))
+    );
+    let sent = 0;
+    results.forEach((result, i) => {
+      if (result.status === 'fulfilled') {
+        sent++;
+      } else {
+        const e = result.reason;
+        console.error('FCM resync error for token', tokens[i], ':', e.message);
+        if (
+          e.code === 'messaging/registration-token-not-registered' ||
+          e.code === 'messaging/invalid-registration-token'
+        ) {
+          deleteDeviceToken(tokens[i], () => {});
+        }
+      }
+    });
+    res.status(200).json({ success: true, sent });
   });
 });
 

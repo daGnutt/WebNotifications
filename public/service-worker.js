@@ -1,6 +1,9 @@
 // Service Worker for Web Notifications
 const CACHE_NAME = 'web-notifications-v5';
 
+// Apps hidden by the user — updated via postMessage from the page
+let hiddenApps = new Set();
+
 // Only truly static, versioned assets get cache-first treatment.
 // index.html / '/' use network-first so page updates are always visible immediately.
 const STATIC_ASSETS = [
@@ -48,9 +51,20 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(fetch(event.request));
 });
 
+self.addEventListener('message', (event) => {
+  if (event.data?.type === 'set-hidden-apps') {
+    hiddenApps = new Set(Array.isArray(event.data.hiddenApps) ? event.data.hiddenApps : []);
+  }
+});
+
 self.addEventListener('push', (event) => {
   const data = event.data.json();
-  
+
+  // Suppress push notifications for apps the user has hidden
+  if (data.appName && hiddenApps.has(data.appName)) {
+    return;
+  }
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
       // Show notification unless a window is actively focused
