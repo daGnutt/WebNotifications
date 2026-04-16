@@ -80,6 +80,8 @@ Sign in (or register) with a username and password. Once signed in you can:
 - Reset your account via a 6-digit email code (deletes all data and recreates the account)
 - Generate a **QR code** to configure a smartphone — click the "QR Code" button in the user bar (see [QR_CODE.md](QR_CODE.md))
 
+Append **`?demo`** to the URL (e.g. `http://localhost:3000/?demo`) to enable **Demo mode** — notification titles, bodies, and sender names are blurred so the interface can be shown publicly without revealing content.
+
 New notifications are delivered in real-time via **Server-Sent Events** (SSE) while a tab is open. Browser push notifications are delivered via the service worker when no tab is open. Incoming notifications slide in with an animation; dismissed notifications fade out with a red flash. The favicon badge shows the unread count.
 
 Silent notifications (those with `isSilent: true`) are displayed in a separate **🔇 Silent** section below regular notifications.
