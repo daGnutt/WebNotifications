@@ -168,7 +168,7 @@ Consecutive messages from the same sender are visually grouped (avatar and name 
 
 #### `POST /api/notifications`
 
-Receive a new notification, store it in memory, and immediately fan out web-push messages to all push subscriptions belonging to the user.
+Receive a new notification, store it in memory, and immediately fan out web-push messages to all push subscriptions belonging to the user. If `isSilent` is `true`, the notification is stored and delivered via SSE only — no web-push message is sent.
 
 **Request body**
 
@@ -181,7 +181,7 @@ Receive a new notification, store it in memory, and immediately fan out web-push
 | `sourcePackage` | string  | No       | Android package name of the source app                                                           |
 | `appName`       | string  | No       | Human-readable name of the source app                                                            |
 | `icon`          | string  | No       | Base64-encoded PNG app icon                                                                      |
-| `isSilent`      | boolean | No       | `true` if the notification channel importance is below `IMPORTANCE_DEFAULT` (no sound/vibration) |
+| `isSilent`      | boolean | No       | `true` if the notification channel importance is below `IMPORTANCE_DEFAULT` (no sound/vibration). Silent notifications are stored and delivered via SSE only — web-push is suppressed. |
 | `actions`       | array   | No       | List of `{ semanticAction, title }` action objects                                               |
 | `messages`      | array   | No       | MessagingStyle messages: `{ sender?, text, timestamp, senderIcon? }`                             |
 | `...`           | any     | No       | Any additional fields are stored in `data`                                                       |

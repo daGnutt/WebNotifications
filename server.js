@@ -464,6 +464,11 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
     // Broadcast to any open SSE connections for this user
     if (userId) broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
 
+    // Silent notifications are delivered via SSE only — no web-push popup.
+    if (notification.isSilent) {
+      return res.status(200).json({ success: true, id: notification.id });
+    }
+
     // Send push notifications to all subscribers (or user-specific ones)
     sendPushNotifications(notification, userId)
       .then(() => {
