@@ -15,6 +15,36 @@ Set the `PORT` environment variable to change the port.
 
 The server listens on all IPv4 **and** IPv6 interfaces (`::`, dual-stack).
 
+## Running with Docker
+
+```bash
+# 1. Create secrets.json from the example and fill it in
+cp secrets.example.json secrets.json
+
+# 2. Build and start
+docker compose up -d
+
+# 3. View logs
+docker compose logs -f
+```
+
+The container exposes port **3000**. The SQLite database is stored in a named Docker volume (`db-data`) and persists across restarts. `secrets.json` is bind-mounted read-only from the project directory — it is never baked into the image.
+
+Useful commands:
+
+```bash
+docker compose stop
+docker compose restart
+docker compose down          # stops; data volume is preserved
+docker compose down -v       # stops AND deletes the database volume
+```
+
+To change the host port, edit `docker-compose.yml`:
+```yaml
+ports:
+  - "8080:3000"   # serve on host port 8080
+```
+
 ## Installing as a systemd service
 
 Run the installer to set up a persistent **systemd user service** that starts automatically on boot and restarts on failure:

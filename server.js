@@ -118,7 +118,7 @@ app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Initialize SQLite database
-const db = new sqlite3.Database('./notifications.db', (err) => {
+const db = new sqlite3.Database(process.env.DB_PATH || './notifications.db', (err) => {
   if (err) {
     console.error('Error opening database:', err.message);
   } else {

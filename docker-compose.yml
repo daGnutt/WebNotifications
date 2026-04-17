@@ -1,0 +1,18 @@
+services:
+  web-notifications:
+    build: .
+    container_name: web-notifications
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    volumes:
+      # Persist the SQLite database across container restarts
+      - db-data:/data
+      # Inject secrets at runtime — copy secrets.example.json → secrets.json and fill it in first
+      - ./secrets.json:/app/secrets.json:ro
+    environment:
+      NODE_ENV: production
+      DB_PATH: /data/notifications.db
+
+volumes:
+  db-data:
