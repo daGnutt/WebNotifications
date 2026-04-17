@@ -64,6 +64,10 @@ const sseClients = new Map();
 // In-memory notifications store: userId -> notification[]
 const notificationsStore = new Map();
 
+// In-memory set of all app names ever seen per user: userId -> Set<appName|null>
+// Intentionally ephemeral — cleared on restart.
+const seenApps = new Map();
+
 function broadcastToUser(userId, event, data) {
   const sessions = sseClients.get(userId);
   if (!sessions || sessions.size === 0) return;
@@ -238,6 +242,9 @@ function addNotification(notification, userId, callback) {
   const key = userId || '__anonymous__';
   if (!notificationsStore.has(key)) notificationsStore.set(key, []);
   notificationsStore.get(key).unshift(notification);
+  // Track this app name in the per-user seen-apps set
+  if (!seenApps.has(key)) seenApps.set(key, new Set());
+  seenApps.get(key).add(notification.appName || null);
   if (callback) callback(null);
 }
 
@@ -913,6 +920,16 @@ app.get('/api/users/:userId', requireUserId, (req, res) => {
   } else {
     respond();
   }
+});
+
+// GET /api/users/:userId/known-apps — returns all app names ever seen for this user (in-memory, ephemeral)
+app.get('/api/users/:userId/known-apps', requireUserId, (req, res) => {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  const key = req.user.user_id;
+  const apps = seenApps.has(key) ? [...seenApps.get(key)] : [];
+  res.status(200).json({ apps });
 });
 
 app.delete('/api/users/:userId', requireUserId, (req, res) => {

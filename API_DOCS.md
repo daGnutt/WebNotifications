@@ -565,6 +565,26 @@ Register or refresh a browser session. Call this after login and after a success
 
 ---
 
+#### `GET /api/users/:userId/known-apps`
+
+Returns all app names that have ever been seen in notifications for this user since the server last started. This list is **in-memory and ephemeral** — it is cleared when the server restarts, but it persists across individual notification deletions. It is used by the frontend to keep the App Filters list populated even after short-lived notifications have been dismissed.
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | Must match the authenticated user. |
+
+**Response**
+
+| Status | Meaning | Body |
+|--------|---------|------|
+| `200`  | Success | `{ apps: (string | null)[] }` — array of app name strings; `null` represents notifications with no app name set. |
+| `401`  | Missing/invalid userId | `{ success: false, error }` |
+| `403`  | userId mismatch | `{ success: false, error }` |
+
+---
+
 #### `GET /api/users/:userId/sessions`
 
 List all active browser sessions for the authenticated user, ordered by most recently active first.

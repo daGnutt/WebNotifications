@@ -716,6 +716,7 @@
         // ── State ────────────────────────────────────────────────────────────
         let currentUser = null;  // { userId, username }
         let hiddenApps = new Set();
+        let knownApps = new Set();  // all app names ever seen (seeded from server, survives notification deletes)
         let allNotifications = [];  // full list from server (unfiltered)
         let shownNotificationIds = new Set();
         let badgeCount = 0;
@@ -885,6 +886,12 @@ function connectSSE(userId) {
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ userId: user.userId, sessionId: currentSessionId, browserLabel: detectBrowserLabel() })
             }).catch(() => {});
+
+            // Seed knownApps from server (in-memory list of all apps ever seen)
+            fetch(`/api/users/${user.userId}/known-apps?userId=${encodeURIComponent(user.userId)}`)
+                .then(r => r.json())
+                .then(data => { if (Array.isArray(data.apps)) data.apps.forEach(a => knownApps.add(a)); })
+                .catch(() => {});
 
             subscribeToPushNotifications();
             fetchNotifications();
@@ -1067,6 +1074,7 @@ function connectSSE(userId) {
             currentUser = null;
             currentSessionId = null;
             hiddenApps = new Set();
+            knownApps = new Set();
             allNotifications = [];
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
@@ -1237,6 +1245,7 @@ function connectSSE(userId) {
                 const notifications = await response.json();
 
                 allNotifications = notifications;
+                notifications.forEach(n => knownApps.add(n.appName || null));
                 renderFlyoutAppFilters();
 
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
@@ -1720,8 +1729,8 @@ function connectSSE(userId) {
             const list = document.getElementById('app-filter-list');
             if (!list) return;
 
-            // Collect unique app keys from current notifications
-            const appKeys = [...new Set(allNotifications.map(n => n.appName || null))];
+            // Collect unique app keys from all apps ever seen (persists across notification deletes)
+            const appKeys = [...knownApps];
             appKeys.sort((a, b) => {
                 if (a === null) return 1;
                 if (b === null) return -1;
