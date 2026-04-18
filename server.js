@@ -284,6 +284,10 @@ function verifyPassword(password, hash) {
 }
 
 // User management functions
+function normalizeUsername(username) {
+  return typeof username === 'string' ? username.trim().toLowerCase() : null;
+}
+
 async function createUser(username, password, email, callback) {
   try {
     const userId = uuidv4();
@@ -738,7 +742,8 @@ app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) 
 
 // Unified auth: register (new user) or login (existing user)
 app.post('/api/auth', async (req, res) => {
-  const { username, password, email } = req.body;
+  const { password, email } = req.body;
+  const username = normalizeUsername(req.body.username);
   if (!username || !password) {
     return res.status(400).json({ success: false, error: 'username and password are required' });
   }
@@ -783,7 +788,7 @@ app.post('/api/auth', async (req, res) => {
 
 // POST /api/auth/reset-request — send a time-limited reset code to the user's email
 app.post('/api/auth/reset-request', (req, res) => {
-  const { username } = req.body;
+  const username = normalizeUsername(req.body.username);
   if (!username) return res.status(400).json({ success: false, error: 'username is required' });
 
   getUserByUsername(username, (err, user) => {

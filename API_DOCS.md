@@ -27,7 +27,7 @@ Register a new user or log in to an existing account. This is the single sign-in
 
 | Field      | Type   | Required | Description                          |
 |------------|--------|----------|--------------------------------------|
-| `username` | string | Yes      | Unique username                      |
+| `username` | string | Yes      | Unique username (automatically trimmed and lowercased) |
 | `password` | string | Yes      | Plain-text password                  |
 | `email`    | string | No       | Email address (used for resets)      |
 
@@ -51,7 +51,7 @@ Send a 6-digit reset code to the user's registered email address. The code is va
 
 | Field      | Type   | Required | Description   |
 |------------|--------|----------|---------------|
-| `username` | string | Yes      | Account username |
+| `username` | string | Yes      | Account username (automatically trimmed and lowercased) |
 
 **Responses**
 
