@@ -731,7 +731,8 @@
         let knownApps = new Set();  // all app names ever seen (seeded from server, survives notification deletes)
         let allNotifications = [];  // full list from server (unfiltered)
         let shownNotificationIds = new Set();
-        let badgeCount = 0;
+        let badgeCount = 0;         // unseen normal notifications
+        let silentBadgeCount = 0;   // unseen silent notifications
         let focusTimer = null;
         let pendingNotifications = null;   // staged while heads-up banner is showing
         let headsUpTimeout = null;
@@ -1269,7 +1270,8 @@ function connectSSE(userId) {
 
                     // Only badge when the page doesn't have focus
                     if (!document.hasFocus()) {
-                        badgeCount += newOnes.length;
+                        badgeCount       += newOnes.filter(n => !n.isSilent).length;
+                        silentBadgeCount += newOnes.filter(n => n.isSilent === true).length;
                         updateTitleWithCount();
                     }
 
@@ -1553,18 +1555,25 @@ function connectSSE(userId) {
         setInterval(refreshTimestamps, 30000);
 
         function updateTitleWithCount() {
-            document.title = badgeCount > 0 ? `(${badgeCount}) Web Notifications` : 'Web Notifications';
-            updateFavicon(badgeCount, 0);
+            const total = badgeCount + silentBadgeCount;
+            document.title = total > 0 ? `(${total}) Web Notifications` : 'Web Notifications';
+            updateFavicon(badgeCount, silentBadgeCount, 0);
         }
 
-        function updateFavicon(count, tilt = 0) {
+        function updateFavicon(normalCount, silentCount, tilt = 0) {
             const canvas = document.createElement('canvas');
             canvas.width = 32;
             canvas.height = 32;
             const ctx = canvas.getContext('2d');
 
-            // Green circle background
-            ctx.fillStyle = '#1976D2';
+            // Background circle: red = unseen normal, yellow = unseen silent, green = all clear
+            if (normalCount > 0) {
+                ctx.fillStyle = '#e53935';
+            } else if (silentCount > 0) {
+                ctx.fillStyle = '#F9A825';
+            } else {
+                ctx.fillStyle = '#43A047';
+            }
             ctx.beginPath();
             ctx.arc(16, 16, 16, 0, 2 * Math.PI);
             ctx.fill();
@@ -1613,19 +1622,6 @@ function connectSSE(userId) {
 
             ctx.restore();
 
-            if (count > 0) {
-                ctx.fillStyle = '#f44336';
-                ctx.beginPath();
-                ctx.arc(24, 8, 7, 0, 2 * Math.PI);
-                ctx.fill();
-
-                ctx.fillStyle = 'white';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(count > 9 ? '9+' : String(count), 24, 8);
-            }
-
             const link = document.querySelector("link[rel~='icon']");
             if (link) link.href = canvas.toDataURL('image/png');
         }
@@ -1634,7 +1630,7 @@ function connectSSE(userId) {
             const tilts = [0, 0.35, -0.35, 0.28, -0.28, 0.18, -0.18, 0.1, -0.1, 0];
             let i = 0;
             const tick = () => {
-                updateFavicon(badgeCount, tilts[i]);
+                updateFavicon(badgeCount, silentBadgeCount, tilts[i]);
                 i++;
                 if (i < tilts.length) setTimeout(tick, 60);
             };
@@ -1823,10 +1819,11 @@ function connectSSE(userId) {
         // Badge only shows for notifications that arrived while the page was
         // unfocused. After 3 continuous seconds of focus it is cleared.
         window.addEventListener('focus', () => {
-            if (badgeCount === 0 || focusTimer) return;
+            if (badgeCount === 0 && silentBadgeCount === 0 || focusTimer) return;
             focusTimer = setTimeout(() => {
                 focusTimer = null;
                 badgeCount = 0;
+                silentBadgeCount = 0;
                 updateTitleWithCount();
             }, 3000);
         });
@@ -1846,7 +1843,7 @@ function connectSSE(userId) {
         // ── Bootstrap ────────────────────────────────────────────────────────
         registerServiceWorker();
         requestNotificationPermission();
-        updateFavicon(0);
+        updateFavicon(0, 0);
 
         if (new URLSearchParams(location.search).has('demo')) {
             document.body.classList.add('demo-mode');
