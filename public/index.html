@@ -79,6 +79,17 @@
             flex: 1;
             border-top: 1px solid var(--border-color);
         }
+        .notifications-section-header--toggle {
+            cursor: pointer;
+            user-select: none;
+        }
+        .notifications-section-header--toggle:hover {
+            color: var(--text-color);
+        }
+        .notification.notification-filtered-preview {
+            opacity: 0.45;
+            pointer-events: none;
+        }
         .notification-content {
             flex: 1;
             min-width: 0;
@@ -716,6 +727,7 @@
         // ── State ────────────────────────────────────────────────────────────
         let currentUser = null;  // { userId, username }
         let hiddenApps = new Set();
+        let showHiddenNotifications = false;  // toggle state for "hidden by app filter" section
         let knownApps = new Set();  // all app names ever seen (seeded from server, survives notification deletes)
         let allNotifications = [];  // full list from server (unfiltered)
         let shownNotificationIds = new Set();
@@ -1074,6 +1086,7 @@ function connectSSE(userId) {
             currentUser = null;
             currentSessionId = null;
             hiddenApps = new Set();
+            showHiddenNotifications = false;
             knownApps = new Set();
             allNotifications = [];
             initialLoadDone = false;
@@ -1303,14 +1316,14 @@ function connectSSE(userId) {
             document.getElementById('notification-indicator').classList.remove('incoming');
         }
 
-        function renderNotificationCard(notification, newIds) {
+        function renderNotificationCard(notification, newIds, isFilteredPreview = false) {
             const isNew = newIds.has(notification.id);
             const isSilent = notification.isSilent === true;
             return `
-                <div class="notification${isNew ? ' notification-new' : ''}${isSilent ? ' notification-silent' : ''}"
+                <div class="notification${isNew ? ' notification-new' : ''}${isSilent ? ' notification-silent' : ''}${isFilteredPreview ? ' notification-filtered-preview' : ''}"
                      id="notification-${notification.id}">
                     ${notification.icon ? `<img class="notification-icon" src="${notification.icon}" alt="" onerror="this.style.display='none'">` : ''}
-                    <button class="close-button" onclick="dismissNotification('${notification.id}')" title="Dismiss">&#x2715;</button>
+                    ${!isFilteredPreview ? `<button class="close-button" onclick="dismissNotification('${notification.id}')" title="Dismiss">&#x2715;</button>` : ''}
                     <div class="notification-content">
                         <div class="notification-header">
                             <div class="notification-title-row">
@@ -1322,7 +1335,7 @@ function connectSSE(userId) {
                         ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${linkifyText(notification.body || '')}</div>`}
                         ${renderSentAction(notification)}
                         ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
-                        ${notification.actions ? renderActions(notification) : ''}
+                        ${!isFilteredPreview && notification.actions ? renderActions(notification) : ''}
                     </div>
                 </div>`;
         }
@@ -1335,12 +1348,21 @@ function connectSSE(userId) {
                 const key = n.appName || null;
                 return !hiddenApps.has(key);
             });
+            const filtered = notifications.filter(n => hiddenApps.has(n.appName || null));
+            const hiddenCount = filtered.length;
 
             if (visible.length === 0) {
-                const hiddenCount = notifications.length - visible.length;
-                container.innerHTML = hiddenCount > 0
-                    ? `<div class="no-notifications">No active notifications<br><span style="font-size:12px">(${hiddenCount} hidden by app filter)</span></div>`
-                    : '<div class="no-notifications">No active notifications</div>';
+                if (hiddenCount > 0) {
+                    const chevron = showHiddenNotifications ? '▾' : '▸';
+                    let html = `<div class="no-notifications">No active notifications</div>`;
+                    html += `<div class="notifications-section-header notifications-section-header--toggle" onclick="toggleHiddenNotifications()"><span>${chevron} ${hiddenCount} notification${hiddenCount !== 1 ? 's' : ''} hidden by app filter</span></div>`;
+                    if (showHiddenNotifications) {
+                        html += filtered.map(n => renderNotificationCard(n, newIds, true)).join('');
+                    }
+                    container.innerHTML = html;
+                } else {
+                    container.innerHTML = '<div class="no-notifications">No active notifications</div>';
+                }
                 return;
             }
 
@@ -1356,12 +1378,20 @@ function connectSSE(userId) {
                 html += silent.map(n => renderNotificationCard(n, newIds)).join('');
             }
 
-            const hiddenCount = notifications.length - visible.length;
             if (hiddenCount > 0) {
-                html += `<div class="notifications-section-header">${hiddenCount} notification${hiddenCount !== 1 ? 's' : ''} hidden by app filter</div>`;
+                const chevron = showHiddenNotifications ? '▾' : '▸';
+                html += `<div class="notifications-section-header notifications-section-header--toggle" onclick="toggleHiddenNotifications()"><span>${chevron} ${hiddenCount} notification${hiddenCount !== 1 ? 's' : ''} hidden by app filter</span></div>`;
+                if (showHiddenNotifications) {
+                    html += filtered.map(n => renderNotificationCard(n, newIds, true)).join('');
+                }
             }
 
             container.innerHTML = html;
+        }
+
+        function toggleHiddenNotifications() {
+            showHiddenNotifications = !showHiddenNotifications;
+            displayNotifications(allNotifications);
         }
 
         // Semantic action codes from Android's NotificationCompat.Action
