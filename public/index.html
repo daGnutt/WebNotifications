@@ -1443,8 +1443,8 @@ function connectSSE(userId) {
                     return `<button class="action-button" id="reply-btn-${nid}-${i}" onclick="toggleReply('${nid}', '${i}')">↩ ${ph}</button>
                         <div class="reply-row" id="reply-row-${nid}-${i}">
                             <input type="text" class="reply-input" id="reply-input-${nid}-${i}" placeholder="${ph}"
-                                   onkeydown="if(event.key==='Enter') handleAction('${nid}', '${key}', this.value)">
-                            <button class="action-button" onclick="handleAction('${nid}', '${key}', document.getElementById('reply-input-${nid}-${i}').value)">Send</button>
+                                   onkeydown="if(event.key==='Enter'&&this.value.trim()){submitReply('${nid}','${key}',this,'${i}')}else if(event.key==='Escape'){toggleReply('${nid}','${i}')}">
+                            <button class="action-button" onclick="submitReply('${nid}', '${key}', document.getElementById('reply-input-${nid}-${i}'), '${i}')">Send</button>
                         </div>`;
                 }
                 const icon  = SEMANTIC_ICONS[action.semanticAction] || '';
@@ -1462,6 +1462,17 @@ function connectSSE(userId) {
             const row = document.getElementById(`reply-row-${nid}-${idx}`);
             const isOpen = row.classList.toggle('open');
             if (isOpen) row.querySelector('input').focus();
+            else row.querySelector('input').value = '';
+        }
+
+        function submitReply(nid, key, inputEl, idx) {
+            const value = inputEl.value.trim();
+            if (!value) return;
+            // Give immediate visual feedback: close the row before the SSE round-trip
+            inputEl.value = '';
+            const row = document.getElementById(`reply-row-${nid}-${idx}`);
+            if (row) row.classList.remove('open');
+            handleAction(nid, key, value);
         }
 
         function escapeHtml(str) {
