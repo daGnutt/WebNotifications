@@ -69,6 +69,38 @@ systemctl --user stop    web-notifications
 journalctl --user -u     web-notifications -f
 ```
 
+## Automatic deployment (GitHub Actions)
+
+The repository includes a self-hosted GitHub Actions workflow (`.github/workflows/deploy.yaml`) that automatically restarts the live service on every push to `main`.
+
+### How it works
+
+1. A **self-hosted runner** is registered on the live server (same machine running the service). It listens for workflow jobs tagged `runs-on: self-hosted`.
+2. When a push lands on `main`, the `deploy.yaml` workflow checks out the code and SSHes to `127.0.0.1` using a private key stored in the `SSH_PRIV_KEY` Actions secret.
+3. The SSH server executes `systemctl --user restart web-notifications` — and **only** that command — because the authorized_keys entry uses a `command=` restriction.
+
+### Server-side setup
+
+Add the following **restricted** entry to `~/.ssh/authorized_keys` on the live server:
+
+```
+command="systemctl --user restart web-notifications" ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIOIQxYWr0ajlFtFS3LQ76mEsKWKkM8gfQTKYHCgShsvV githubrunner
+```
+
+The `command=` prefix means this key can **only** trigger a service restart — it cannot open an interactive shell or run any other command.
+
+### GitHub Actions secret
+
+In your repository go to **Settings → Secrets and variables → Actions** and add a secret:
+
+| Name | Value |
+|------|-------|
+| `SSH_PRIV_KEY` | The private key corresponding to the `authorized_keys` entry above |
+
+### Self-hosted runner registration
+
+Follow the GitHub docs under **Settings → Actions → Runners → New self-hosted runner** on the live server. Run the runner as the same user that owns the `web-notifications` systemd service.
+
 ## Configuration
 
 Copy `secrets.example.json` to `secrets.json`. VAPID keys are required for browser push notifications; SMTP is required for email-based account reset.
