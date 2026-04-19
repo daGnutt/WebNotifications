@@ -1,0 +1,24 @@
+name: Continuous Deployment
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    # This tells GitHub to look for your local machine
+    runs-on: self-hosted
+    env:
+      SSH_PRIV_KEY: ${{ SSH_PRIV_KEY }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@main
+
+      - name: SSH-restart-service
+        run: |
+          TMPFILE=$(mktemp)
+          CHMOD 600 $TMPFILE
+          echo "$SSH_PRIV_KEY" >> $TMPFILE
+          ssh -o IdentitiesOnly=yes IdentityFile="$TMPFILE" 127.0.0.1
+          rm $TMPFILE
