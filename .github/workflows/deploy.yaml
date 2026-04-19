@@ -8,9 +8,6 @@ jobs:
   deploy:
     # This tells GitHub to look for your local machine
     runs-on: self-hosted
-    env:
-      SSH_PRIV_KEY: ${{ SSH_PRIV_KEY }}
-
     steps:
       - name: Checkout code
         uses: actions/checkout@main
@@ -18,7 +15,7 @@ jobs:
       - name: SSH-restart-service
         run: |
           TMPFILE=$(mktemp)
-          CHMOD 600 $TMPFILE
-          echo "$SSH_PRIV_KEY" >> $TMPFILE
-          ssh -o IdentitiesOnly=yes IdentityFile="$TMPFILE" 127.0.0.1
-          rm $TMPFILE
+          chmod 600 "$TMPFILE"
+          echo "${{ secrets.SSH_PRIV_KEY }}" > "$TMPFILE"
+          ssh -o IdentitiesOnly=yes -i "$TMPFILE" -o StrictHostKeyChecking=no 127.0.0.1
+          rm "$TMPFILE"
