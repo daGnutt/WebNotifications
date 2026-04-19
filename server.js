@@ -42,6 +42,9 @@ if (fcmConfig.serviceAccount) {
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Captured once at startup so SSE clients can detect a server restart and reload.
+const SERVER_STARTED_AT = new Date().toISOString();
+
 // Returns a shallow copy of obj with data URI strings replaced by a short summary.
 function sanitizeForLog(obj) {
   const result = {};
@@ -123,7 +126,10 @@ const db = new sqlite3.Database(process.env.DB_PATH || './notifications.db', (er
     console.error('Error opening database:', err.message);
   } else {
     console.log('Connected to SQLite database');
-    initializeDatabase(() => sendResyncRequest());
+    initializeDatabase(() => {
+      sendResyncRequest();
+      sendStartupReloadPush();
+    });
   }
 });
 
@@ -227,6 +233,28 @@ async function sendResyncRequest(specificToken) {
       }
     }
   });
+}
+
+// Send a {type:"reload"} web-push to every stored subscription so open browser tabs
+// and service workers know the server restarted and should reload for fresh code.
+async function sendStartupReloadPush() {
+  if (!vapidKeys.publicKey || !vapidKeys.privateKey) return;
+  const rows = await new Promise(resolve => {
+    getAllPushSubscriptions((err, r) => resolve(err ? [] : r));
+  });
+  if (rows.length === 0) return;
+  console.log(`Sending startup reload push to ${rows.length} subscription(s)`);
+  const payload = JSON.stringify({ type: 'reload' });
+  await Promise.allSettled(
+    rows.map(row => {
+      const sub = JSON.parse(row.subscription_data);
+      return webpush.sendNotification(sub, payload).catch(err => {
+        if (err.statusCode === 410) {
+          deletePushSubscription(sub.endpoint, () => {});
+        }
+      });
+    })
+  );
 }
 
 // In-memory notification helpers
@@ -591,8 +619,9 @@ app.get('/api/notifications/stream', requireUserId, (req, res) => {
   if (!sseClients.has(userId)) sseClients.set(userId, new Map());
   sseClients.get(userId).set(clientKey, res);
 
-  // Send an initial heartbeat so the browser knows it's connected
-  res.write('event: connected\ndata: {}\n\n');
+  // Send an initial heartbeat so the browser knows it's connected.
+  // Include SERVER_STARTED_AT so tabs can detect a server restart and reload.
+  res.write(`event: connected\ndata: ${JSON.stringify({ startedAt: SERVER_STARTED_AT })}\n\n`);
 
   // Keep-alive ping every 25 seconds to prevent proxy timeouts
   const heartbeat = setInterval(() => res.write(':ping\n\n'), 25000);

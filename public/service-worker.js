@@ -60,6 +60,16 @@ self.addEventListener('message', (event) => {
 self.addEventListener('push', (event) => {
   const data = event.data.json();
 
+  // Server-restart reload signal — tell all open tabs to reload for fresh code.
+  if (data.type === 'reload') {
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+        clientList.forEach(client => client.postMessage({ type: 'reload' }));
+      })
+    );
+    return;
+  }
+
   // Suppress push notifications for apps the user has hidden
   if (data.appName && hiddenApps.has(data.appName)) {
     return;

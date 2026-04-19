@@ -857,11 +857,22 @@ function connectSSE(userId) {
                     sseFallbackInterval = setInterval(fetchNotifications, 30000);
                 }
             };
-            sseConnection.addEventListener('connected', () => {
+            sseConnection.addEventListener('connected', (e) => {
                 // SSE is working — clear any fallback poll
                 if (sseFallbackInterval) {
                     clearInterval(sseFallbackInterval);
                     sseFallbackInterval = null;
+                }
+                // Detect server restarts: if startedAt changed since this tab was opened, reload
+                // so the browser picks up any updated frontend code.
+                let data = {};
+                try { data = JSON.parse(e.data); } catch {}
+                if (data.startedAt) {
+                    const prev = sessionStorage.getItem('serverStartedAt');
+                    sessionStorage.setItem('serverStartedAt', data.startedAt);
+                    if (prev && prev !== data.startedAt) {
+                        window.location.reload();
+                    }
                 }
             });
         }
@@ -1243,6 +1254,16 @@ function connectSSE(userId) {
             navigator.serviceWorker.controller.postMessage({
                 type: 'set-hidden-apps',
                 hiddenApps: [...hiddenApps]
+            });
+        }
+
+        // Listen for reload messages posted by the service worker (triggered by a
+        // {type:"reload"} web-push sent when the server starts up after a deployment).
+        if ('serviceWorker' in navigator) {
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                if (event.data?.type === 'reload') {
+                    window.location.reload();
+                }
             });
         }
 
