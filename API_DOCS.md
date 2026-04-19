@@ -123,33 +123,31 @@ Retrieve all notifications for the authenticated user, ordered newest first.
 > `actionTaken` and `actionResponse` are only present if an action was recorded via `POST /api/notifications/:id/actions`.
 > `isSilent` is only present if it was included in the original POST payload.
 
-**Conversation thread (`data.messages`)**
+**Conversation thread (`messages`)**
 
-If the notification body is a messaging thread rather than plain text, pass a `data.messages` array. The UI renders it as an iMessage-style conversation instead of a plain body string.
+If the notification body is a messaging thread rather than plain text, pass a top-level `messages` array. The UI renders it as an iMessage-style conversation instead of a plain body string.
 
 ```json
 {
   "userId": "<uuid>",
   "title": "Alice",
-  "data": {
-    "messages": [
-      {
-        "sender": "Alice",
-        "text": "Hey, you around?",
-        "timestamp": "2026-04-12T18:30:00.000Z",
-        "senderIcon": "<raw base64, data URI, or URL — optional>"
-      },
-      {
-        "sender": "Alice",
-        "text": "Call me when you can",
-        "timestamp": "2026-04-12T18:31:00.000Z"
-      },
-      {
-        "text": "On my way!",
-        "timestamp": "2026-04-12T18:32:00.000Z"
-      }
-    ]
-  }
+  "messages": [
+    {
+      "sender": "Alice",
+      "text": "Hey, you around?",
+      "timestamp": "2026-04-12T18:30:00.000Z",
+      "senderIcon": "<raw base64, data URI, or URL — optional>"
+    },
+    {
+      "sender": "Alice",
+      "text": "Call me when you can",
+      "timestamp": "2026-04-12T18:31:00.000Z"
+    },
+    {
+      "text": "On my way!",
+      "timestamp": "2026-04-12T18:32:00.000Z"
+    }
+  ]
 }
 ```
 
@@ -184,7 +182,6 @@ Receive a new notification, store it in memory, and immediately fan out web-push
 | `isSilent`      | boolean | No       | `true` if the notification channel importance is below `IMPORTANCE_DEFAULT` (no sound/vibration). Silent notifications are stored and delivered via SSE only — web-push is suppressed. |
 | `actions`       | array   | No       | List of `{ semanticAction, title }` action objects                                               |
 | `messages`      | array   | No       | MessagingStyle messages: `{ sender?, text, timestamp, senderIcon? }`                             |
-| `...`           | any     | No       | Any additional fields are stored in `data`                                                       |
 
 **Responses**
 
