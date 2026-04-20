@@ -922,7 +922,7 @@ app.post('/api/auth/reset-request', authResetRequestLimiter, (req, res) => {
       return res.status(200).json({ success: true, message: 'If an account with an email exists, a code has been sent.' });
     }
 
-    const code = crypto.randomBytes(32).toString('hex');
+    const code = String(crypto.randomInt(100000, 1000000));
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
 
     // Remove any existing codes for this user, then insert new one

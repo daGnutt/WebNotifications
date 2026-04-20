@@ -276,6 +276,45 @@ Acknowledge that the Android app has successfully dispatched the recorded action
 
 ---
 
+### Realtime
+
+#### `GET /api/notifications/stream`
+
+Opens a persistent Server-Sent Events (SSE) connection that delivers real-time update events to the browser. The connection stays open until the client disconnects.
+
+**Query parameters**
+
+| Parameter   | Type   | Required | Description                                         |
+|-------------|--------|----------|-----------------------------------------------------|
+| `userId`    | string | Yes      | User UUID                                           |
+| `sessionId` | string | No       | Browser session UUID. If provided, the connection is keyed to that session so targeted logout events can be pushed. |
+
+**Response headers**
+
+```
+Content-Type: text/event-stream
+Cache-Control: no-cache
+Connection: keep-alive
+```
+
+**Events**
+
+| Event name  | Data shape                              | Description |
+|-------------|-----------------------------------------|-------------|
+| `connected` | `{ startedAt: "<ISO timestamp>" }`      | Sent immediately on connect. `startedAt` is the server's startup time; tabs use this to detect a server restart and reload. |
+| `update`    | `{ reason: "new"\|"delete"\|"action", id: "<id>" }` | Sent after any notification mutation. The client should call `GET /api/notifications` to refresh the list. |
+| `logout`    | `{ sessionId: "<id>" }`                 | Sent to a specific session when it is revoked via `DELETE /api/sessions/:sessionId`. |
+| `:ping`     | *(comment, no data)*                    | Sent every 25 s to prevent proxy timeouts. |
+
+**Responses**
+
+| Status | Description              | Body                        |
+|--------|--------------------------|-----------------------------|
+| `200`  | SSE stream opened        | (streaming body)            |
+| `401`  | Missing/invalid userId   | `{ success: false, error }` |
+
+---
+
 ### Push Subscriptions
 
 #### `GET /api/vapid-public-key`
@@ -638,7 +677,7 @@ All error responses share a common shape:
 
 ## Notes
 
-- **Notifications are stored in memory only** — they are lost when the server restarts. The Android sender app is expected to resend notifications after a restart.
+- **Notifications are persisted to SQLite** and reloaded into memory on startup. On restart the server sends an FCM `resync` message to all registered Android devices so they can re-POST any locally buffered notifications that arrived during the downtime.
 - Users inactive for **30 days** are automatically pruned along with all their notifications, push subscriptions, FCM device tokens, and browser sessions.
 - Browser sessions inactive for **30 days** are pruned independently of user activity.
 - Expired push subscriptions (HTTP 410 from the push service) are removed automatically when a push delivery fails.

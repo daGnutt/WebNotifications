@@ -208,9 +208,12 @@ When changing caching rules, keep the “HTML shell stays fresh” behavior unle
 - Incoming notifications:
   - show a 4px fixed indicator bar at top (breathes green)
   - slide in with `slideInNotification` + `glowPulse` CSS
-- Dismissed notifications:
-  - use `dismissNotification` CSS (slide right + red glow)
-  - API DELETE fires via `animationend` (not timeout)
+- Dismissed notifications (user-initiated via close button):
+  - element is removed from the DOM immediately (no animation)
+  - API DELETE fires concurrently (not gated on animation)
+- Backend-initiated removals (SSE `delete` event):
+  - use `dismissNotification` CSS (fade + red glow) via `animateBackendRemoval`
+  - element is removed after `animationend` with a height-collapse transition
 - Favicon:
   - canvas-drawn (no external image)
   - updated on every poll
@@ -224,7 +227,8 @@ When changing caching rules, keep the “HTML shell stays fresh” behavior unle
 
 - DO route all SQLite access through named helper functions (`addNotification`, `createUser`, etc.).
 - DO keep the helpers **callback-based** using Node-style `(err, result)` callbacks.
-- DON’T introduce ad-hoc `db.*` calls scattered across route handlers.
+- DON’T introduce ad-hoc `db.*` calls for general notification or user CRUD — use the named helpers.
+- Small, self-contained operations that don’t warrant a reusable helper (e.g. reset-code insert/delete, inline `UPDATE users SET email`, inline `UPDATE users SET preferences`) may live directly in the route handler, but keep them minimal.
 
 ### `addNotification(notification, userId, callback)`
 
@@ -234,13 +238,13 @@ When changing caching rules, keep the “HTML shell stays fresh” behavior unle
 
 ### Notification storage model
 
-- The `notifications.data` column stores the full notification object as JSON:
+- The `notifications.payload` column stores the full notification object as JSON:
   - including `actions`, `actionTaken`, `actionResponse`, etc.
-- When reading, parse `row.data` and treat it as the source of truth for notification payload.
+- When reading, parse `row.payload` and treat it as the source of truth for notification payload.
 
 ### VAPID keys (web-push)
 
-- VAPID keys are hardcoded in `server.js`.
+- VAPID keys live in `secrets.json` under the `vapid` key (`publicKey`, `privateKey`, `mailto`), not hardcoded in `server.js`.
 - DON’T rotate keys without also clearing stored `push_subscriptions`, because existing browser subscriptions will become invalid.
 
 ### Migrations
