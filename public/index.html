@@ -1342,8 +1342,9 @@ function connectSSE(userId) {
         function renderNotificationCard(notification, newIds, isFilteredPreview = false) {
             const isNew = newIds.has(notification.id);
             const isSilent = notification.isSilent === true;
+            const isPending = notification.actionTaken && !notification.actionDispatched;
             return `
-                <div class="notification${isNew ? ' notification-new' : ''}${isSilent ? ' notification-silent' : ''}${isFilteredPreview ? ' notification-filtered-preview' : ''}"
+                <div class="notification${isNew ? ' notification-new' : ''}${isSilent ? ' notification-silent' : ''}${isFilteredPreview ? ' notification-filtered-preview' : ''}${isPending ? ' notification-pending' : ''}"
                      id="notification-${notification.id}">
                     ${notification.icon ? `<img class="notification-icon" src="${notification.icon}" alt="" onerror="this.style.display='none'">` : ''}
                     ${!isFilteredPreview ? `<button class="close-button" onclick="dismissNotification('${notification.id}')" title="Dismiss">&#x2715;</button>` : ''}
@@ -1442,8 +1443,11 @@ function connectSSE(userId) {
         }
 
         function renderSentAction(notification) {
-            const { actionTaken, actionResponse } = notification;
+            const { actionTaken, actionResponse, actionDispatched } = notification;
             if (!actionTaken) return '';
+            if (!actionDispatched) {
+                return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">⏳ Sending to device…</span></div></div>`;
+            }
             const icon = SEMANTIC_ICONS[actionTaken] ?? '';
             if (actionResponse) {
                 return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">↩ You replied</span>${escapeHtml(actionResponse)}</div></div>`;
