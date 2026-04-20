@@ -575,6 +575,19 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   // Add unique ID
   notification.id = uuidv4();
 
+  // If the Android sender provides a stable key for this notification slot, clean up any
+  // fully-dispatched history entries for the same key before inserting the fresh one.
+  // This prevents accumulation of "Action taken: ..." history cards in the web UI when
+  // the source app updates its notification after an action was fired.
+  if (notification.androidKey && userId) {
+    const existing = notificationsStore.get(userId) || [];
+    const stale = existing.filter(n => n.androidKey === notification.androidKey && n.actionDispatched);
+    for (const old of stale) {
+      deleteNotification(userId, old.id);
+      broadcastToUser(userId, 'update', { reason: 'delete', id: old.id });
+    }
+  }
+
   // Store notification in memory
   addNotification(notification, userId, () => {
     console.log('Received notification:', sanitizeForLog(notification));

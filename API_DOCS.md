@@ -182,6 +182,7 @@ Receive a new notification, store it in memory, and immediately fan out web-push
 | `isSilent`      | boolean | No       | `true` if the notification channel importance is below `IMPORTANCE_DEFAULT` (no sound/vibration). Silent notifications are stored and delivered via SSE only — web-push is suppressed. |
 | `actions`       | array   | No       | List of `{ semanticAction, title }` action objects                                               |
 | `messages`      | array   | No       | MessagingStyle messages: `{ sender?, text, timestamp, senderIcon? }`                             |
+| `androidKey`    | string  | No       | Stable Android notification key (`sbn.key`) identifying the notification slot on the device. When provided, any previously stored notification for this user with the same `androidKey` that has been fully dispatched (`actionDispatched: true`) is auto-deleted before the new entry is created. This prevents accumulation of "Action taken" history cards when the source app updates its notification after an action is fired. |
 
 **Responses**
 
