@@ -317,6 +317,17 @@
                 slideInNotification 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards,
                 glowPulse 0.7s ease 0.4s 3;
         }
+        /* Silent new notifications must end at opacity 0.6, not 1, so the
+           animation forwards-fill doesn't override .notification-silent. */
+        @keyframes slideInNotificationSilent {
+            from { opacity: 0;   transform: translateY(-24px) scale(0.97); }
+            to   { opacity: 0.6; transform: translateY(0)     scale(1); }
+        }
+        .notification-new.notification-silent {
+            animation:
+                slideInNotificationSilent 0.4s cubic-bezier(0.22, 1, 0.36, 1) forwards,
+                glowPulse 0.7s ease 0.4s 3;
+        }
         @keyframes dismissNotification {
             0%   { opacity: 1; background-color: var(--card-bg);              box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
             40%  { opacity: 1; background-color: rgba(244, 67, 54, 0.22);     box-shadow: 0 0 0 3px rgba(244,67,54,0.45); }
