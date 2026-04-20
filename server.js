@@ -116,7 +116,11 @@ if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
 }
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGIN || false,
+  methods: ['GET', 'POST', 'DELETE', 'PATCH'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+}));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
