@@ -238,12 +238,7 @@ function initializeDatabase(callback) {
         PRIMARY KEY (id, user_id),
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
-    `, () => {
-      // Migration: add payload column to existing DBs that predate it
-      db.run('ALTER TABLE notifications ADD COLUMN payload TEXT', () => {
-        if (callback) callback();
-      });
-    });
+    `, () => { if (callback) callback(); });
   });
 }
 
