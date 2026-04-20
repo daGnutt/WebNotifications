@@ -95,6 +95,7 @@ function disconnectSseClients(userId) {
 function purgeUser(userId, callback) {
   notificationsStore.delete(userId);
   db.serialize(() => {
+    db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
     db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
     db.run('DELETE FROM push_subscriptions WHERE user_id = ?', [userId]);
     db.run('DELETE FROM device_tokens      WHERE user_id = ?', [userId]);
@@ -157,8 +158,10 @@ const db = new sqlite3.Database(process.env.DB_PATH || './notifications.db', (er
   } else {
     console.log('Connected to SQLite database');
     initializeDatabase(() => {
-      sendResyncRequest();
-      sendStartupReloadPush();
+      loadNotificationsFromDb(() => {
+        sendResyncRequest();
+        sendStartupReloadPush();
+      });
     });
   }
 });
@@ -221,6 +224,18 @@ function initializeDatabase(callback) {
         browser_label TEXT,
         created_at TEXT DEFAULT CURRENT_TIMESTAMP,
         last_active TEXT,
+        FOREIGN KEY (user_id) REFERENCES users(user_id)
+      )
+    `);
+
+    // Persistent notification store — write-through cache backed by this table
+    db.run(`
+      CREATE TABLE IF NOT EXISTS notifications (
+        id TEXT NOT NULL,
+        user_id TEXT NOT NULL,
+        payload TEXT NOT NULL,
+        received_at TEXT NOT NULL,
+        PRIMARY KEY (id, user_id),
         FOREIGN KEY (user_id) REFERENCES users(user_id)
       )
     `, () => { if (callback) callback(); });
@@ -287,7 +302,7 @@ async function sendStartupReloadPush() {
   );
 }
 
-// In-memory notification helpers
+// In-memory notification helpers (write-through cache; DB is source of truth on startup)
 function getAllNotifications(userId, callback) {
   const notifications = userId
     ? (notificationsStore.get(userId) || [])
@@ -300,10 +315,18 @@ function addNotification(notification, userId, callback) {
   const key = userId || '__anonymous__';
   if (!notificationsStore.has(key)) notificationsStore.set(key, []);
   notificationsStore.get(key).unshift(notification);
-  // Track this app name in the per-user seen-apps set
   if (!seenApps.has(key)) seenApps.set(key, new Set());
   seenApps.get(key).add(notification.appName || null);
-  if (callback) callback(null);
+  if (userId) {
+    const stmt = db.prepare('INSERT OR REPLACE INTO notifications (id, user_id, payload, received_at) VALUES (?, ?, ?, ?)');
+    stmt.run([notification.id, userId, JSON.stringify(notification), notification.timestamp || new Date().toISOString()], (err) => {
+      if (err) console.error('Error persisting notification:', err.message);
+      if (callback) callback(null);
+    });
+    stmt.finalize();
+  } else {
+    if (callback) callback(null);
+  }
 }
 
 function deleteNotification(userId, id) {
@@ -312,12 +335,45 @@ function deleteNotification(userId, id) {
   const idx = notifications.findIndex(n => n.id === id);
   if (idx === -1) return false;
   notifications.splice(idx, 1);
+  db.run('DELETE FROM notifications WHERE id = ? AND user_id = ?', [id, userId], (err) => {
+    if (err) console.error('Error deleting notification from DB:', err.message);
+  });
   return true;
 }
 
 function getNotification(userId, id) {
   const notifications = notificationsStore.get(userId);
   return notifications ? notifications.find(n => n.id === id) : null;
+}
+
+function persistNotification(userId, notification) {
+  db.run('UPDATE notifications SET payload = ? WHERE id = ? AND user_id = ?',
+    [JSON.stringify(notification), notification.id, userId], (err) => {
+      if (err) console.error('Error updating notification in DB:', err.message);
+    });
+}
+
+function loadNotificationsFromDb(callback) {
+  db.all('SELECT user_id, payload FROM notifications ORDER BY received_at ASC', (err, rows) => {
+    if (err) {
+      console.error('Error loading notifications from DB:', err.message);
+      return callback ? callback() : undefined;
+    }
+    for (const row of rows) {
+      try {
+        const notification = JSON.parse(row.payload);
+        const key = row.user_id;
+        if (!notificationsStore.has(key)) notificationsStore.set(key, []);
+        notificationsStore.get(key).unshift(notification);
+        if (!seenApps.has(key)) seenApps.set(key, new Set());
+        seenApps.get(key).add(notification.appName || null);
+      } catch (e) {
+        console.error('Error parsing persisted notification:', e.message);
+      }
+    }
+    console.log(`Loaded ${rows.length} notification(s) from database`);
+    if (callback) callback();
+  });
 }
 
 // Password hashing helpers (using built-in crypto — no extra deps)
@@ -768,6 +824,7 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
   notification.actionTaken = action;
   notification.actionResponse = response;
   delete notification.actionDispatched;
+  persistNotification(userId, notification);
 
   broadcastToUser(userId, 'update', { reason: 'action', id });
   const fcmPayload = { type: 'action', notificationId: id, actionTaken: String(action) };
@@ -800,6 +857,7 @@ app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) 
   }
 
   notification.actionDispatched = true;
+  persistNotification(userId, notification);
   broadcastToUser(userId, 'update', { reason: 'action', id });
   res.status(200).json({ success: true });
 });
@@ -1141,6 +1199,7 @@ function pruneInactiveUsers() {
     ids.forEach(id => notificationsStore.delete(id));
     const placeholders = ids.map(() => '?').join(',');
     db.serialize(() => {
+      db.run(`DELETE FROM notifications      WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM reset_codes        WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM push_subscriptions WHERE user_id IN (${placeholders})`, ids);
       db.run(`DELETE FROM device_tokens      WHERE user_id IN (${placeholders})`, ids);
