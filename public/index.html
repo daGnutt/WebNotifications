@@ -1358,7 +1358,7 @@ function connectSSE(userId) {
                         </div>
                         ${notification.messages?.length > 0 ? renderMessages(notification) : `<div class="notification-body">${linkifyText(notification.body || '')}</div>`}
                         ${renderSentAction(notification)}
-                        ${notification.intent ? `<div class="notification-intent">↗ ${/^https?:\/\//i.test(notification.intent) ? `<a href="${notification.intent}" target="_blank" rel="noopener">${notification.intent}</a>` : notification.intent}</div>` : ''}
+                        ${(() => { const su = safeIntent(notification.intent); return su ? `<div class="notification-intent">↗ <a href="${escapeHtml(su)}" target="_blank" rel="noopener">${escapeHtml(su)}</a></div>` : ''; })()}
                         ${!isFilteredPreview && notification.actions ? renderActions(notification) : ''}
                     </div>
                 </div>`;
@@ -1505,6 +1505,14 @@ function connectSSE(userId) {
         function escapeHtml(str) {
             if (!str) return '';
             return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function safeIntent(intent) {
+            try {
+                const u = new URL(intent);
+                if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+                return u.href;
+            } catch { return null; }
         }
 
         // HTML-escape text and then wrap any URLs in clickable <a> tags.
