@@ -296,6 +296,16 @@
             color: rgba(255,255,255,0.65);
             margin-bottom: 2px;
         }
+        @keyframes sentReplySending {
+            0%, 100% { opacity: 0.45; }
+            50%       { opacity: 0.85; }
+        }
+        .sent-reply-bubble.sent-reply-sending {
+            animation: sentReplySending 1.4s ease-in-out infinite;
+        }
+        .sent-reply-bubble.sent-reply-timeout {
+            background: #8a6000;
+        }
 
         .no-notifications {
             text-align: center;
@@ -731,6 +741,10 @@
         let knownApps = new Set();  // all app names ever seen (seeded from server, survives notification deletes)
         let allNotifications = [];  // full list from server (unfiltered)
         let shownNotificationIds = new Set();
+        // Action dispatch acknowledgement tracking
+        const actionSendingTimeouts = new Map(); // notificationId -> timeoutId
+        const actionDispatchTimedOut = new Set(); // notificationIds where Android ack timed out
+        const ACTION_DISPATCH_TIMEOUT_MS = 30000;
         let badgeCount = 0;         // unseen normal notifications
         let silentBadgeCount = 0;   // unseen silent notifications
         let focusTimer = null;
@@ -1102,6 +1116,10 @@ function connectSSE(userId) {
             knownApps = new Set();
             allNotifications = [];
             initialLoadDone = false;
+            // Clear any pending action dispatch timers
+            actionSendingTimeouts.forEach(tid => clearTimeout(tid));
+            actionSendingTimeouts.clear();
+            actionDispatchTimedOut.clear();
             localStorage.removeItem('currentUser');
             localStorage.removeItem('sessionId');
             document.body.classList.remove('show-app-name');
@@ -1363,8 +1381,40 @@ function connectSSE(userId) {
                 </div>`;
         }
 
+        function manageActionDispatchTimers(notifications) {
+            const activeIds = new Set(notifications.map(n => n.id));
+
+            // Clean up state for notifications that have been deleted
+            actionSendingTimeouts.forEach((tid, nid) => {
+                if (!activeIds.has(nid)) { clearTimeout(tid); actionSendingTimeouts.delete(nid); }
+            });
+            actionDispatchTimedOut.forEach(nid => { if (!activeIds.has(nid)) actionDispatchTimedOut.delete(nid); });
+
+            notifications.forEach(n => {
+                if (n.actionTaken && !n.actionDispatched) {
+                    // Start a timeout if we're not already waiting or already timed out
+                    if (!actionSendingTimeouts.has(n.id) && !actionDispatchTimedOut.has(n.id)) {
+                        const tid = setTimeout(() => {
+                            actionSendingTimeouts.delete(n.id);
+                            actionDispatchTimedOut.add(n.id);
+                            fetchNotifications();
+                        }, ACTION_DISPATCH_TIMEOUT_MS);
+                        actionSendingTimeouts.set(n.id, tid);
+                    }
+                } else if (n.actionDispatched) {
+                    // Android confirmed — clear any pending timeout and timed-out flag
+                    const tid = actionSendingTimeouts.get(n.id);
+                    if (tid != null) { clearTimeout(tid); actionSendingTimeouts.delete(n.id); }
+                    actionDispatchTimedOut.delete(n.id);
+                }
+            });
+        }
+
         function displayNotifications(notifications, newIds = new Set()) {
             const container = document.getElementById('notifications-container');
+
+            // Update dispatch acknowledgement timers whenever the list changes
+            manageActionDispatchTimers(notifications);
 
             // Filter out notifications from hidden apps
             const visible = notifications.filter(n => {
@@ -1442,15 +1492,28 @@ function connectSSE(userId) {
         }
 
         function renderSentAction(notification) {
-            const { actionTaken, actionResponse } = notification;
+            const { actionTaken, actionResponse, actionDispatched, id: nid } = notification;
             if (!actionTaken) return '';
             const icon = SEMANTIC_ICONS[actionTaken] ?? '';
+
+            let statusLabel, bubbleClass;
+            if (actionDispatched) {
+                statusLabel = actionResponse ? '↩ You replied' : '✓ Action taken';
+                bubbleClass = 'sent-reply-bubble';
+            } else if (actionDispatchTimedOut.has(nid)) {
+                statusLabel = '⚠ Sent (no confirmation)';
+                bubbleClass = 'sent-reply-bubble sent-reply-timeout';
+            } else {
+                statusLabel = '📤 Sending to device\u2026';
+                bubbleClass = 'sent-reply-bubble sent-reply-sending';
+            }
+
             if (actionResponse) {
-                return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">↩ You replied</span>${escapeHtml(actionResponse)}</div></div>`;
+                return `<div class="sent-reply"><div class="${bubbleClass}"><span class="sent-reply-label">${statusLabel}</span>${escapeHtml(actionResponse)}</div></div>`;
             }
             // Non-reply action (e.g. like, mark-as-read) — show the action label
             const label = icon ? `${icon} ${escapeHtml(String(actionTaken))}` : escapeHtml(String(actionTaken));
-            return `<div class="sent-reply"><div class="sent-reply-bubble"><span class="sent-reply-label">✓ Action taken</span>${label}</div></div>`;
+            return `<div class="sent-reply"><div class="${bubbleClass}"><span class="sent-reply-label">${statusLabel}</span>${label}</div></div>`;
         }
 
         function renderActions(notification) {
