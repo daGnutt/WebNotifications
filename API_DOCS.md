@@ -565,6 +565,8 @@ Update user preferences. The path `:userId` must match the authenticated `userId
 | `userId`      | string          | Yes      | User UUID                                                     |
 | `show_app_name` | integer (0/1) | No       | Whether to show the app name on notification cards (`1` = show, `0` = hide). |
 | `hidden_apps` | array or null   | No       | List of app name strings whose notifications are hidden in the frontend. Pass `null` or `[]` to show all apps. |
+| `disable_heads_up` | integer (0/1) | No    | When `1`, skips the 2-second heads-up indicator bar and renders incoming notifications immediately. |
+| `disable_notification_highlight` | integer (0/1) | No | When `1`, new notifications are not animated/highlighted when they appear (only meaningful when `disable_heads_up` is also `1`). |
 
 **Responses**
 

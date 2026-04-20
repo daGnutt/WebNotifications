@@ -184,6 +184,8 @@ function initializeDatabase(callback) {
     db.run(`ALTER TABLE users ADD COLUMN email TEXT`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN show_app_name INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN hidden_apps TEXT DEFAULT NULL`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN disable_heads_up INTEGER DEFAULT 0`, () => {});
+    db.run(`ALTER TABLE users ADD COLUMN disable_notification_highlight INTEGER DEFAULT 0`, () => {});
     
     // Create push_subscriptions table with user_id
     db.run(`
@@ -893,7 +895,7 @@ app.post('/api/auth', authLoginLimiter, async (req, res) => {
       createUser(username, password, email, (createErr, newUser) => {
         if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
         console.log(`User registered: ${username} (${newUser.userId})`);
-        res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false } });
+        res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false, disableHeadsUp: false, disableHighlight: false } });
       });
     } else {
       // Existing user — verify password
@@ -918,7 +920,7 @@ app.post('/api/auth', authLoginLimiter, async (req, res) => {
 
       console.log(`User logged in: ${username} (${user.user_id})`);
       updateUserLastActive(user.user_id, () => {});
-      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name, hiddenApps: (() => { try { return user.hidden_apps ? JSON.parse(user.hidden_apps) : []; } catch { return []; } })() } });
+      res.status(200).json({ success: true, created: false, user: { userId: user.user_id, username: user.username, email: user.email || null, showAppName: !!user.show_app_name, hiddenApps: (() => { try { return user.hidden_apps ? JSON.parse(user.hidden_apps) : []; } catch { return []; } })(), disableHeadsUp: !!user.disable_heads_up, disableHighlight: !!user.disable_notification_highlight } });
     }
   });
 });
@@ -1016,7 +1018,7 @@ app.patch('/api/users/:userId/email', requireUserId, (req, res) => {
 });
 
 app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
-  const { show_app_name, hidden_apps } = req.body;
+  const { show_app_name, hidden_apps, disable_heads_up, disable_notification_highlight } = req.body;
   const fields = [];
   const params = [];
 
@@ -1035,6 +1037,16 @@ app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
     } else {
       return res.status(400).json({ success: false, error: 'hidden_apps must be an array or null' });
     }
+  }
+
+  if (disable_heads_up !== undefined) {
+    fields.push('disable_heads_up = ?');
+    params.push(disable_heads_up ? 1 : 0);
+  }
+
+  if (disable_notification_highlight !== undefined) {
+    fields.push('disable_notification_highlight = ?');
+    params.push(disable_notification_highlight ? 1 : 0);
   }
 
   if (fields.length === 0) {

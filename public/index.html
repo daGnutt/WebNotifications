@@ -701,6 +701,14 @@
                         <input type="checkbox" id="show-app-name-checkbox" onchange="toggleShowAppName(this.checked)">
                         Show app name on notifications
                     </label>
+                    <label class="flyout-pref-row">
+                        <input type="checkbox" id="disable-heads-up-checkbox" onchange="toggleDisableHeadsUp(this.checked)">
+                        No pre-warning for incoming notifications
+                    </label>
+                    <label class="flyout-pref-row" id="disable-highlight-row" style="padding-left:20px;opacity:0.6;pointer-events:none">
+                        <input type="checkbox" id="disable-highlight-checkbox" onchange="toggleDisableHighlight(this.checked)" disabled>
+                        Don't highlight new notifications
+                    </label>
                 </div>
 
                 <!-- Browser Sessions -->
@@ -918,6 +926,16 @@ function connectSSE(userId) {
             const showAppName = user.showAppName || false;
             document.body.classList.toggle('show-app-name', showAppName);
             document.getElementById('show-app-name-checkbox').checked = showAppName;
+
+            const disableHeadsUp = user.disableHeadsUp || false;
+            document.getElementById('disable-heads-up-checkbox').checked = disableHeadsUp;
+            const highlightRow = document.getElementById('disable-highlight-row');
+            const highlightCb  = document.getElementById('disable-highlight-checkbox');
+            highlightRow.style.opacity = disableHeadsUp ? '1' : '0.6';
+            highlightRow.style.pointerEvents = disableHeadsUp ? 'auto' : 'none';
+            highlightCb.disabled = !disableHeadsUp;
+            const disableHighlight = user.disableHighlight || false;
+            highlightCb.checked = disableHighlight;
 
             // Register this browser session with the server (fire-and-forget)
             fetch('/api/sessions', {
@@ -1169,6 +1187,43 @@ function connectSSE(userId) {
             }
         }
 
+        async function toggleDisableHeadsUp(checked) {
+            const highlightRow = document.getElementById('disable-highlight-row');
+            const highlightCb  = document.getElementById('disable-highlight-checkbox');
+            highlightRow.style.opacity = checked ? '1' : '0.6';
+            highlightRow.style.pointerEvents = checked ? 'auto' : 'none';
+            highlightCb.disabled = !checked;
+            if (!checked) {
+                highlightCb.checked = false;
+                await toggleDisableHighlight(false);
+            }
+            if (currentUser) {
+                currentUser.disableHeadsUp = checked;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                try {
+                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUser.userId, disable_heads_up: checked ? 1 : 0 })
+                    });
+                } catch (e) { console.error('Failed to save preference:', e); }
+            }
+        }
+
+        async function toggleDisableHighlight(checked) {
+            if (currentUser) {
+                currentUser.disableHighlight = checked;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                try {
+                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUser.userId, disable_notification_highlight: checked ? 1 : 0 })
+                    });
+                } catch (e) { console.error('Failed to save preference:', e); }
+            }
+        }
+
         function restoreSession() {
             const saved = localStorage.getItem('currentUser');
             if (saved) {
@@ -1193,7 +1248,9 @@ function connectSSE(userId) {
                                 username: fetched.username,
                                 email: fetched.email || null,
                                 showAppName: !!fetched.show_app_name,
-                                hiddenApps: (() => { try { return fetched.hidden_apps ? JSON.parse(fetched.hidden_apps) : []; } catch { return []; } })()
+                                hiddenApps: (() => { try { return fetched.hidden_apps ? JSON.parse(fetched.hidden_apps) : []; } catch { return []; } })(),
+                                disableHeadsUp: !!fetched.disable_heads_up,
+                                disableHighlight: !!fetched.disable_notification_highlight
                             });
                         })
                         .catch(() => logout());
@@ -1301,8 +1358,9 @@ function connectSSE(userId) {
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
 
                 if (newOnes.length > 0 && initialLoadDone) {
-                    // Stage the incoming notifications and warn the user first
-                    pendingNotifications = { notifications, newIds: new Set(newOnes.map(n => n.id)) };
+                    const headsUpDisabled = currentUser?.disableHeadsUp || false;
+                    const highlightDisabled = currentUser?.disableHighlight || false;
+                    const newIds = new Set(newOnes.map(n => n.id));
 
                     // Only badge when the page doesn't have focus
                     if (!document.hasFocus()) {
@@ -1316,21 +1374,32 @@ function connectSSE(userId) {
                     if (document.visibilityState !== 'visible') return;
 
                     animateFaviconBell();
-                    showHeadsUpBanner();
 
-                    if (headsUpTimeout) clearTimeout(headsUpTimeout);
-                    headsUpTimeout = setTimeout(() => {
-                        headsUpTimeout = null;
-                        hideHeadsUpBanner();
-                        if (pendingNotifications) {
-                            const { notifications: pending, newIds } = pendingNotifications;
-                            pendingNotifications = null;
-                            pending.forEach(n => shownNotificationIds.add(n.id));
-                            displayNotifications(pending, newIds);
-                            initialLoadDone = true;
-                        }
-                    }, HEADS_UP_MS);
-                } else {
+                    if (headsUpDisabled) {
+                        // Skip the staged heads-up banner — render immediately
+                        if (headsUpTimeout) { clearTimeout(headsUpTimeout); headsUpTimeout = null; hideHeadsUpBanner(); pendingNotifications = null; }
+                        notifications.forEach(n => shownNotificationIds.add(n.id));
+                        displayNotifications(notifications, highlightDisabled ? new Set() : newIds);
+                        initialLoadDone = true;
+                    } else {
+                        // Stage the incoming notifications and warn the user first
+                        pendingNotifications = { notifications, newIds };
+
+                        showHeadsUpBanner();
+
+                        if (headsUpTimeout) clearTimeout(headsUpTimeout);
+                        headsUpTimeout = setTimeout(() => {
+                            headsUpTimeout = null;
+                            hideHeadsUpBanner();
+                            if (pendingNotifications) {
+                                const { notifications: pending, newIds: pNewIds } = pendingNotifications;
+                                pendingNotifications = null;
+                                pending.forEach(n => shownNotificationIds.add(n.id));
+                                displayNotifications(pending, pNewIds);
+                                initialLoadDone = true;
+                            }
+                        }, HEADS_UP_MS);
+                    } else {
                     // No new arrivals (or initial load) — render immediately
                     if (!headsUpTimeout) {
                         notifications.forEach(n => shownNotificationIds.add(n.id));
