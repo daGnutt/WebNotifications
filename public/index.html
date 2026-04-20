@@ -1454,7 +1454,10 @@ function connectSSE(userId) {
         }
 
         function actionKey(action) {
-            return action.semanticAction != null ? action.semanticAction : (action.type || 'action');
+            // semanticAction 0 means NONE/unspecified — use title so distinct actions
+            // with the same (absent) semantic are still individually addressable.
+            if (!action.semanticAction) return action.title || action.type || 'action';
+            return action.semanticAction;
         }
 
         function renderSentAction(notification) {
