@@ -6,6 +6,7 @@ const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
 const nodemailer = require('nodemailer');
+const rateLimit = require('express-rate-limit');
 
 // Load secrets (SMTP config, etc.)
 let secrets = {};
@@ -119,6 +120,31 @@ app.use(cors());
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 app.use(express.static('public'));
+
+// Rate limiters for auth endpoints
+const authLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many attempts, please try again later.' }
+});
+
+const authResetRequestLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 5,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many reset requests, please try again later.' }
+});
+
+const authResetConfirmLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { success: false, error: 'Too many attempts, please try again later.' }
+});
 
 // Initialize SQLite database
 const db = new sqlite3.Database(process.env.DB_PATH || './notifications.db', (err) => {
@@ -777,7 +803,7 @@ app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) 
 // User management API endpoints
 
 // Unified auth: register (new user) or login (existing user)
-app.post('/api/auth', async (req, res) => {
+app.post('/api/auth', authLoginLimiter, async (req, res) => {
   const { password, email } = req.body;
   const username = normalizeUsername(req.body.username);
   if (!username || !password) {
@@ -823,7 +849,7 @@ app.post('/api/auth', async (req, res) => {
 });
 
 // POST /api/auth/reset-request — send a time-limited reset code to the user's email
-app.post('/api/auth/reset-request', (req, res) => {
+app.post('/api/auth/reset-request', authResetRequestLimiter, (req, res) => {
   const username = normalizeUsername(req.body.username);
   if (!username) return res.status(400).json({ success: false, error: 'username is required' });
 
@@ -834,7 +860,7 @@ app.post('/api/auth/reset-request', (req, res) => {
       return res.status(200).json({ success: true, message: 'If an account with an email exists, a code has been sent.' });
     }
 
-    const code = Math.floor(100000 + Math.random() * 900000).toString(); // 6-digit
+    const code = crypto.randomBytes(32).toString('hex');
     const expiresAt = new Date(Date.now() + 15 * 60 * 1000).toISOString(); // 15 minutes
 
     // Remove any existing codes for this user, then insert new one
@@ -868,7 +894,7 @@ app.post('/api/auth/reset-request', (req, res) => {
 });
 
 // POST /api/auth/reset-confirm — verify code and recreate the account with a new password
-app.post('/api/auth/reset-confirm', (req, res) => {
+app.post('/api/auth/reset-confirm', authResetConfirmLimiter, (req, res) => {
   const { code, newPassword } = req.body;
   if (!code || !newPassword) {
     return res.status(400).json({ success: false, error: 'code and newPassword are required' });
