@@ -17,5 +17,5 @@ jobs:
           TMPFILE=$(mktemp)
           chmod 600 "$TMPFILE"
           echo "${{ secrets.SSH_PRIV_KEY }}" > "$TMPFILE"
-          ssh -o IdentitiesOnly=yes -i "$TMPFILE" -o StrictHostKeyChecking=no 127.0.0.1
+          ssh -o IdentitiesOnly=yes -i "$TMPFILE" -o StrictHostKeyChecking=no 127.0.0.1 'systemctl --user restart web-notifications'
           rm "$TMPFILE"
