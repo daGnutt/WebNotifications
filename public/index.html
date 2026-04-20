@@ -1399,7 +1399,8 @@ function connectSSE(userId) {
                                 initialLoadDone = true;
                             }
                         }, HEADS_UP_MS);
-                    } else {
+                    }
+                } else {
                     // No new arrivals (or initial load) — render immediately
                     if (!headsUpTimeout) {
                         notifications.forEach(n => shownNotificationIds.add(n.id));
