@@ -1741,12 +1741,16 @@ function connectSSE(userId) {
         async function handleAction(notificationId, actionType, response) {
             const el = document.getElementById(`notification-${notificationId}`);
             if (el) el.classList.add('notification-pending');
+            const controller = new AbortController();
+            const timeout = setTimeout(() => controller.abort(), 15000);
             try {
                 const res = await fetch(`/api/notifications/${notificationId}/actions`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ action: actionType, response, userId: currentUser.userId })
+                    body: JSON.stringify({ action: actionType, response, userId: currentUser.userId }),
+                    signal: controller.signal
                 });
+                clearTimeout(timeout);
                 if (!res.ok) {
                     console.error('Action failed:', res.status, await res.text().catch(() => ''));
                     if (el) el.classList.remove('notification-pending');
@@ -1756,8 +1760,13 @@ function connectSSE(userId) {
                 // in case the SSE connection is broken.
                 setTimeout(() => { if (el) el.classList.remove('notification-pending'); }, 30000);
             } catch (error) {
-                console.error('Error handling action:', error);
+                clearTimeout(timeout);
                 if (el) el.classList.remove('notification-pending');
+                if (error.name === 'AbortError') {
+                    console.error('Action timed out after 15 seconds');
+                } else {
+                    console.error('Error handling action:', error);
+                }
             }
         }
 
