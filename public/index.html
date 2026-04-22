@@ -1698,13 +1698,13 @@ function connectSSE(userId) {
             canvas.height = 32;
             const ctx = canvas.getContext('2d');
 
-            // Background circle: red = unseen normal, yellow = unseen silent, green = all clear
+            // Background circle: red = unseen normal, yellow = unseen silent, light blue = all clear
             if (normalCount > 0) {
                 ctx.fillStyle = '#e53935';
             } else if (silentCount > 0) {
                 ctx.fillStyle = '#F9A825';
             } else {
-                ctx.fillStyle = '#43A047';
+                ctx.fillStyle = '#29B6F6';
             }
             ctx.beginPath();
             ctx.arc(16, 16, 16, 0, 2 * Math.PI);
