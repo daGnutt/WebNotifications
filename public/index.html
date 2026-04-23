@@ -713,6 +713,17 @@
                         <input type="checkbox" id="suppress-push-when-open-checkbox" onchange="toggleSuppressPushWhenOpen(this.checked)">
                         No browser notifications while UI is open
                     </label>
+                    <label class="flyout-pref-row">
+                        <input type="checkbox" id="read-delay-checkbox" onchange="toggleReadDelay(this.checked)">
+                        Clear unread flag after a delay
+                    </label>
+                    <div class="flyout-pref-row" id="read-delay-secs-row" style="padding-left:20px;opacity:0.6;pointer-events:none">
+                        Delay:
+                        <input type="number" id="read-delay-secs-input" min="1" max="3600" value="3"
+                               style="width:52px;padding:2px 4px;border:1px solid var(--border-color);border-radius:4px;background:var(--bg-color);color:var(--text-color)"
+                               disabled onchange="saveReadDelaySecs(parseInt(this.value, 10))">
+                        seconds
+                    </div>
                 </div>
 
                 <!-- Browser Sessions -->
@@ -944,6 +955,16 @@ function connectSSE(userId) {
             const suppressPushWhenOpen = user.suppressPushWhenOpen || false;
             document.getElementById('suppress-push-when-open-checkbox').checked = suppressPushWhenOpen;
             syncSuppressPushToServiceWorker();
+
+            const readDelaySecs = user.readDelaySecs ?? 3;
+            const readDelayEnabled = readDelaySecs > 0;
+            document.getElementById('read-delay-checkbox').checked = readDelayEnabled;
+            const readDelaySecsInput = document.getElementById('read-delay-secs-input');
+            const readDelaySecsRow   = document.getElementById('read-delay-secs-row');
+            readDelaySecsInput.value = readDelayEnabled ? readDelaySecs : 3;
+            readDelaySecsInput.disabled = !readDelayEnabled;
+            readDelaySecsRow.style.opacity = readDelayEnabled ? '1' : '0.6';
+            readDelaySecsRow.style.pointerEvents = readDelayEnabled ? 'auto' : 'none';
 
             // Register this browser session with the server (fire-and-forget)
             fetch('/api/sessions', {
@@ -1256,6 +1277,31 @@ function connectSSE(userId) {
             });
         }
 
+        async function toggleReadDelay(checked) {
+            const secsInput = document.getElementById('read-delay-secs-input');
+            const secsRow   = document.getElementById('read-delay-secs-row');
+            secsInput.disabled = !checked;
+            secsRow.style.opacity = checked ? '1' : '0.6';
+            secsRow.style.pointerEvents = checked ? 'auto' : 'none';
+            const secs = checked ? (parseInt(secsInput.value, 10) || 3) : 0;
+            await saveReadDelaySecs(secs);
+        }
+
+        async function saveReadDelaySecs(secs) {
+            const validated = Math.max(0, Math.min(3600, isNaN(secs) ? 3 : secs));
+            if (currentUser) {
+                currentUser.readDelaySecs = validated;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                try {
+                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUser.userId, read_delay_secs: validated })
+                    });
+                } catch (e) { console.error('Failed to save preference:', e); }
+            }
+        }
+
         function restoreSession() {
             const saved = localStorage.getItem('currentUser');
             if (saved) {
@@ -1283,7 +1329,8 @@ function connectSSE(userId) {
                                 hiddenApps: (() => { try { return fetched.hidden_apps ? JSON.parse(fetched.hidden_apps) : []; } catch { return []; } })(),
                                 disableHeadsUp: !!fetched.disable_heads_up,
                                 disableHighlight: !!fetched.disable_notification_highlight,
-                                suppressPushWhenOpen: !!fetched.suppress_push_when_open
+                                suppressPushWhenOpen: !!fetched.suppress_push_when_open,
+                                readDelaySecs: fetched.read_delay_secs ?? 3
                             });
                         })
                         .catch(() => logout());
@@ -1998,15 +2045,22 @@ function connectSSE(userId) {
 
         // ── Focus-aware badge clearing ────────────────────────────────────────
         // Badge only shows for notifications that arrived while the page was
-        // unfocused. After 3 continuous seconds of focus it is cleared.
+        // unfocused. After the configured read delay (default 3 s) of continuous
+        // focus the badge is cleared. A delay of 0 clears it immediately.
         window.addEventListener('focus', () => {
             if (badgeCount === 0 && silentBadgeCount === 0 || focusTimer) return;
-            focusTimer = setTimeout(() => {
+            const delaySecs = currentUser?.readDelaySecs ?? 3;
+            const clearBadge = () => {
                 focusTimer = null;
                 badgeCount = 0;
                 silentBadgeCount = 0;
                 updateTitleWithCount();
-            }, 3000);
+            };
+            if (delaySecs === 0) {
+                clearBadge();
+            } else {
+                focusTimer = setTimeout(clearBadge, delaySecs * 1000);
+            }
         });
 
         window.addEventListener('blur', () => {

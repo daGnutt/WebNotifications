@@ -594,6 +594,7 @@ Update user preferences. The path `:userId` must match the authenticated `userId
 | `disable_heads_up` | integer (0/1) | No    | When `1`, skips the 2-second heads-up indicator bar and renders incoming notifications immediately. |
 | `disable_notification_highlight` | integer (0/1) | No | When `1`, new notifications are not animated/highlighted when they appear (only meaningful when `disable_heads_up` is also `1`). |
 | `suppress_push_when_open` | integer (0/1) | No | When `1`, the service worker suppresses push notifications whenever any browser window with the UI is open (not just focused). Defaults to `0` (suppress only when a window is focused). |
+| `read_delay_secs` | integer (0–3600) | No | Seconds of continuous focus before the unread badge is cleared. `0` = clear immediately. Defaults to `3`. |
 
 **Responses**
 
