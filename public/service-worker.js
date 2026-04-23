@@ -76,10 +76,26 @@ self.addEventListener('push', (event) => {
   }
 
   event.waitUntil(
-    clients.matchAll({ type: 'window', includeUncontrolled: true }).then((clientList) => {
+    (async () => {
+      // If the notification has a userId, verify it still exists on the server before
+      // showing it. This prevents stale queued pushes (e.g. turn-by-turn navigation
+      // notifications already dismissed on the phone) from popping up when the browser
+      // opens. On network failure we fall through and show anyway (fail-open).
+      if (data.userId && data.id) {
+        try {
+          const checkRes = await fetch(
+            `/api/notifications/${encodeURIComponent(data.id)}/check?userId=${encodeURIComponent(data.userId)}`
+          );
+          if (!checkRes.ok) return; // 404 = already dismissed — skip
+        } catch (_) {
+          // Offline or server error — show the notification so real ones aren't lost
+        }
+      }
+
+      const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
       // Show notification unless a window is actively focused
       const hasFocusedClient = clientList.some(c => c.focused);
-      
+
       if (!hasFocusedClient) {
         return self.registration.showNotification(data.title, {
           body: data.body,
@@ -90,8 +106,8 @@ self.addEventListener('push', (event) => {
           }
         });
       }
-      return Promise.resolve(); // Don't show any notification if any page is open
-    })
+      // Don't show any notification if any page is open
+    })()
   );
 });
 

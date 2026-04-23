@@ -621,7 +621,8 @@ async function sendPushNotifications(notification, userId) {
     body: notification.body || '',
     id: notification.id,
     timestamp: notification.timestamp,
-    appName: notification.appName || null
+    appName: notification.appName || null,
+    ...(userId ? { userId } : {})
   };
   
   // Get push subscriptions from database (filter by userId if provided)
@@ -732,6 +733,13 @@ app.get('/api/notifications/stream', requireUserId, (req, res) => {
     sseClients.get(userId)?.delete(clientKey);
     if (sseClients.get(userId)?.size === 0) sseClients.delete(userId);
   });
+});
+
+// Lightweight existence check — lets the service worker skip showing stale push notifications
+app.get('/api/notifications/:id/check', requireUserId, (req, res) => {
+  const notification = getNotification(req.user.user_id, req.params.id);
+  if (!notification) return res.status(404).json({ exists: false });
+  res.status(200).json({ exists: true });
 });
 
 // API Endpoint to dismiss a notification

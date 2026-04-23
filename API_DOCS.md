@@ -193,6 +193,32 @@ Receive a new notification, store it in memory, and immediately fan out web-push
 
 ---
 
+#### `GET /api/notifications/:id/check`
+
+Lightweight existence check used by the service worker to verify a notification still exists before showing a push pop-up. Returns immediately without the full notification payload.
+
+**Path parameters**
+
+| Parameter | Description     |
+|-----------|-----------------|
+| `id`      | Notification ID |
+
+**Query parameters**
+
+| Parameter | Type   | Required | Description |
+|-----------|--------|----------|-------------|
+| `userId`  | string | Yes      | User UUID   |
+
+**Responses**
+
+| Status | Description                  | Body                        |
+|--------|------------------------------|-----------------------------|
+| `200`  | Notification still exists    | `{ exists: true }`          |
+| `401`  | Missing/invalid userId       | `{ success: false, error }` |
+| `404`  | Notification not found (dismissed) | `{ exists: false }`   |
+
+---
+
 #### `DELETE /api/notifications/:id`
 
 Delete a notification. Only the owning user can delete their own notifications.
