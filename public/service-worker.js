@@ -4,6 +4,10 @@ const CACHE_NAME = 'web-notifications-v5';
 // Apps hidden by the user — updated via postMessage from the page
 let hiddenApps = new Set();
 
+// When true, push notifications are suppressed whenever any browser window is open
+// (not just when a window is focused). Updated via postMessage from the page.
+let suppressPushWhenOpen = false;
+
 // Only truly static, versioned assets get cache-first treatment.
 // index.html / '/' use network-first so page updates are always visible immediately.
 const STATIC_ASSETS = [
@@ -55,6 +59,9 @@ self.addEventListener('message', (event) => {
   if (event.data?.type === 'set-hidden-apps') {
     hiddenApps = new Set(Array.isArray(event.data.hiddenApps) ? event.data.hiddenApps : []);
   }
+  if (event.data?.type === 'set-suppress-push-when-open') {
+    suppressPushWhenOpen = !!event.data.suppressPushWhenOpen;
+  }
 });
 
 self.addEventListener('push', (event) => {
@@ -93,10 +100,12 @@ self.addEventListener('push', (event) => {
       }
 
       const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
-      // Show notification unless a window is actively focused
-      const hasFocusedClient = clientList.some(c => c.focused);
+      // Suppress if a window is focused, or (when opted in) if any window is open at all
+      const shouldSuppress = suppressPushWhenOpen
+        ? clientList.length > 0
+        : clientList.some(c => c.focused);
 
-      if (!hasFocusedClient) {
+      if (!shouldSuppress) {
         return self.registration.showNotification(data.title, {
           body: data.body,
           icon: '/favicon.svg',

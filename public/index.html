@@ -709,6 +709,10 @@
                         <input type="checkbox" id="disable-highlight-checkbox" onchange="toggleDisableHighlight(this.checked)" disabled>
                         Don't highlight new notifications
                     </label>
+                    <label class="flyout-pref-row">
+                        <input type="checkbox" id="suppress-push-when-open-checkbox" onchange="toggleSuppressPushWhenOpen(this.checked)">
+                        No browser notifications while UI is open
+                    </label>
                 </div>
 
                 <!-- Browser Sessions -->
@@ -937,6 +941,10 @@ function connectSSE(userId) {
             const disableHighlight = user.disableHighlight || false;
             highlightCb.checked = disableHighlight;
 
+            const suppressPushWhenOpen = user.suppressPushWhenOpen || false;
+            document.getElementById('suppress-push-when-open-checkbox').checked = suppressPushWhenOpen;
+            syncSuppressPushToServiceWorker();
+
             // Register this browser session with the server (fire-and-forget)
             fetch('/api/sessions', {
                 method: 'POST',
@@ -1131,6 +1139,7 @@ function connectSSE(userId) {
             currentUser = null;
             currentSessionId = null;
             hiddenApps = new Set();
+            syncSuppressPushToServiceWorker(); // resets to false since currentUser is null
             showHiddenNotifications = false;
             knownApps = new Set();
             allNotifications = [];
@@ -1224,6 +1233,29 @@ function connectSSE(userId) {
             }
         }
 
+        async function toggleSuppressPushWhenOpen(checked) {
+            if (currentUser) {
+                currentUser.suppressPushWhenOpen = checked;
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                syncSuppressPushToServiceWorker();
+                try {
+                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ userId: currentUser.userId, suppress_push_when_open: checked ? 1 : 0 })
+                    });
+                } catch (e) { console.error('Failed to save preference:', e); }
+            }
+        }
+
+        function syncSuppressPushToServiceWorker() {
+            if (!navigator.serviceWorker?.controller) return;
+            navigator.serviceWorker.controller.postMessage({
+                type: 'set-suppress-push-when-open',
+                suppressPushWhenOpen: currentUser?.suppressPushWhenOpen || false
+            });
+        }
+
         function restoreSession() {
             const saved = localStorage.getItem('currentUser');
             if (saved) {
@@ -1250,7 +1282,8 @@ function connectSSE(userId) {
                                 showAppName: !!fetched.show_app_name,
                                 hiddenApps: (() => { try { return fetched.hidden_apps ? JSON.parse(fetched.hidden_apps) : []; } catch { return []; } })(),
                                 disableHeadsUp: !!fetched.disable_heads_up,
-                                disableHighlight: !!fetched.disable_notification_highlight
+                                disableHighlight: !!fetched.disable_notification_highlight,
+                                suppressPushWhenOpen: !!fetched.suppress_push_when_open
                             });
                         })
                         .catch(() => logout());
