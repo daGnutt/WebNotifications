@@ -15,6 +15,7 @@
             --action-bg: #4CAF50;
             --dismiss-bg: #f44336;
             --border-color: #ddd;
+            --link-color: #4CAF50;
         }
         
         @media (prefers-color-scheme: dark) {
@@ -26,6 +27,7 @@
                 --action-bg: #4CAF50;
                 --dismiss-bg: #f44336;
                 --border-color: #444;
+                --link-color: #7B68EE;
             }
         }
         
@@ -217,10 +219,13 @@
             word-break: break-all;
         }
         .notification-intent a {
-            color: #4CAF50;
+            color: var(--link-color);
             text-decoration: none;
         }
         .notification-intent a:hover { text-decoration: underline; }
+        .notification a {
+            color: var(--link-color);
+        }
 
         /* Conversation thread (messages) */
         .message-thread {
