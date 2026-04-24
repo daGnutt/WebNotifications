@@ -100,6 +100,24 @@ self.addEventListener('push', (event) => {
       }
 
       const clientList = await clients.matchAll({ type: 'window', includeUncontrolled: true });
+
+      // The service worker can be terminated by the browser when idle and restarted
+      // when a push arrives, resetting all in-memory state. If a page is open, ask it
+      // for the current preference so we don't lose the user's setting on SW restart.
+      if (clientList.length > 0) {
+        try {
+          const prefs = await new Promise((resolve) => {
+            const channel = new MessageChannel();
+            channel.port1.onmessage = (e) => resolve(e.data || {});
+            setTimeout(() => resolve({}), 300);
+            clientList[0].postMessage({ type: 'get-sw-preferences' }, [channel.port2]);
+          });
+          if (typeof prefs.suppressPushWhenOpen === 'boolean') {
+            suppressPushWhenOpen = prefs.suppressPushWhenOpen;
+          }
+        } catch (_) {}
+      }
+
       // Suppress if a window is focused, or (when opted in) if any window is open at all
       const shouldSuppress = suppressPushWhenOpen
         ? clientList.length > 0
