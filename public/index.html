@@ -1414,13 +1414,25 @@ function connectSSE(userId) {
             });
         }
 
-        // Listen for reload messages posted by the service worker (triggered by a
-        // {type:"reload"} web-push sent when the server starts up after a deployment).
+        // Listen for messages posted by the service worker.
         if ('serviceWorker' in navigator) {
             navigator.serviceWorker.addEventListener('message', (event) => {
+                // Server-restart reload signal.
                 if (event.data?.type === 'reload') {
                     window.location.reload();
                 }
+                // The SW requests current preferences (e.g. after being restarted from idle).
+                if (event.data?.type === 'get-sw-preferences') {
+                    event.ports[0]?.postMessage({
+                        suppressPushWhenOpen: currentUser?.suppressPushWhenOpen || false
+                    });
+                }
+            });
+
+            // Re-sync preferences whenever a new service worker takes control (SW update).
+            navigator.serviceWorker.addEventListener('controllerchange', () => {
+                syncSuppressPushToServiceWorker();
+                syncHiddenAppsToServiceWorker();
             });
         }
 
