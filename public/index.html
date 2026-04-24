@@ -312,6 +312,37 @@
             margin-top: 50px;
         }
 
+        /* ── Backend-down failwhale ── */
+        .backend-down {
+            text-align: center;
+            padding: 60px 20px 40px;
+            color: var(--header-color);
+        }
+        .backend-down-whale {
+            font-size: 80px;
+            display: block;
+            animation: whaleBob 2.4s ease-in-out infinite;
+            transform-origin: center bottom;
+            user-select: none;
+        }
+        @keyframes whaleBob {
+            0%, 100% { transform: translateY(0)    rotate(-6deg); }
+            50%       { transform: translateY(-14px) rotate(6deg); }
+        }
+        .backend-down-title {
+            font-size: 20px;
+            font-weight: bold;
+            margin: 18px 0 8px;
+            color: var(--text-color);
+        }
+        .backend-down-msg {
+            font-size: 14px;
+            opacity: 0.7;
+            max-width: 340px;
+            margin: 0 auto;
+            line-height: 1.5;
+        }
+
         /* ── Incoming notification animations ── */
         @keyframes slideInNotification {
             from { opacity: 0; transform: translateY(-24px) scale(0.97); }
@@ -784,6 +815,7 @@
         let sseConnection = null;
         let sseFallbackInterval = null;
         let currentSessionId = null;
+        let backendFailures = 0;     // consecutive fetchNotifications failures
 
         function detectBrowserLabel() {
             const ua = navigator.userAgent;
@@ -1448,6 +1480,8 @@ function connectSSE(userId) {
                 const response = await fetch(url);
                 const notifications = await response.json();
 
+                backendFailures = 0;
+
                 allNotifications = notifications;
                 notifications.forEach(n => knownApps.add(n.appName || null));
                 renderFlyoutAppFilters();
@@ -1510,7 +1544,21 @@ function connectSSE(userId) {
                 }
             } catch (error) {
                 console.error('Error fetching notifications:', error);
+                backendFailures++;
+                if (backendFailures >= 2) {
+                    showBackendDown();
+                }
             }
+        }
+
+        function showBackendDown() {
+            document.getElementById('notifications-container').innerHTML = `
+                <div class="backend-down">
+                    <span class="backend-down-whale">🐋</span>
+                    <div class="backend-down-title">Backend is unreachable</div>
+                    <div class="backend-down-msg">Can't connect to the server right now.<br>Retrying automatically\u2026</div>
+                    <button onclick="fetchNotifications()" class="btn btn-secondary" style="margin-top:18px">Retry now</button>
+                </div>`;
         }
 
         function showHeadsUpBanner() {
