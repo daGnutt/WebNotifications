@@ -274,12 +274,7 @@ async function sendResyncRequest(specificToken) {
     if (result.status === 'rejected') {
       const err = result.reason;
       console.error('FCM resync error for token', tokens[i], ':', err.message);
-      if (
-        err.code === 'messaging/registration-token-not-registered' ||
-        err.code === 'messaging/invalid-registration-token'
-      ) {
-        deleteDeviceToken(tokens[i], () => {});
-      }
+      handleInvalidFcmToken(tokens[i], err);
     }
   });
 }
@@ -537,6 +532,24 @@ function requireUserId(req, res, next) {
   });
 }
 
+// Middleware — route handler must be acting on its own userId
+function requireSelf(req, res, next) {
+  if (req.params.userId !== req.user.user_id) {
+    return res.status(403).json({ success: false, error: 'Forbidden' });
+  }
+  next();
+}
+
+// Removes an FCM device token that Firebase has told us is no longer valid
+function handleInvalidFcmToken(token, err) {
+  if (
+    err.code === 'messaging/registration-token-not-registered' ||
+    err.code === 'messaging/invalid-registration-token'
+  ) {
+    deleteDeviceToken(token, () => {});
+  }
+}
+
 // Normalize icon: accepts a URL, a data URI, or raw base64 (assumes PNG)
 function normalizeIcon(icon) {
   if (!icon || typeof icon !== 'string') return null;
@@ -677,12 +690,7 @@ async function sendFcmDataMessages(userId, payload) {
     if (result.status === 'rejected') {
       const err = result.reason;
       console.error('FCM send error for token', tokens[i], ':', err.message);
-      if (
-        err.code === 'messaging/registration-token-not-registered' ||
-        err.code === 'messaging/invalid-registration-token'
-      ) {
-        deleteDeviceToken(tokens[i], () => {});
-      }
+      handleInvalidFcmToken(tokens[i], err);
     }
   });
 }
@@ -900,10 +908,7 @@ app.post('/api/auth', authLoginLimiter, async (req, res) => {
       if (!user.password_hash) {
         // Legacy account with no password: set the password now
         try {
-          const hash = await new Promise((resolve, reject) => {
-            const salt = crypto.randomBytes(16).toString('hex');
-            crypto.scrypt(password, salt, 64, (e, key) => e ? reject(e) : resolve(`${salt}:${key.toString('hex')}`));
-          });
+          const hash = await hashPassword(password);
           db.run('UPDATE users SET password_hash = ? WHERE user_id = ?', [hash, user.user_id], () => {});
         } catch (e) { /* non-fatal */ }
         updateUserLastActive(user.user_id, () => {});
@@ -1003,10 +1008,7 @@ app.post('/api/auth/reset-confirm', authResetConfirmLimiter, (req, res) => {
 });
 
 
-app.patch('/api/users/:userId/email', requireUserId, (req, res) => {
-  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.patch('/api/users/:userId/email', requireUserId, requireSelf, (req, res) => {
   const { email } = req.body;
   db.run('UPDATE users SET email = ? WHERE user_id = ?', [email || null, req.user.user_id], function(err) {
     if (err) return res.status(500).json({ success: false, error: 'Failed to update email' });
@@ -1072,10 +1074,7 @@ app.patch('/api/users/:userId/preferences', requireUserId, (req, res) => {
   });
 });
 
-app.get('/api/users/:userId', requireUserId, (req, res) => {
-  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.get('/api/users/:userId', requireUserId, requireSelf, (req, res) => {
   const sessionId = req.query.sessionId || null;
   const respond = () => {
     updateUserLastActive(req.user.user_id, () => {});
@@ -1094,19 +1093,13 @@ app.get('/api/users/:userId', requireUserId, (req, res) => {
 });
 
 // GET /api/users/:userId/known-apps — returns all app names ever seen for this user (in-memory, ephemeral)
-app.get('/api/users/:userId/known-apps', requireUserId, (req, res) => {
-  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.get('/api/users/:userId/known-apps', requireUserId, requireSelf, (req, res) => {
   const key = req.user.user_id;
   const apps = seenApps.has(key) ? [...seenApps.get(key)] : [];
   res.status(200).json({ apps });
 });
 
-app.delete('/api/users/:userId', requireUserId, (req, res) => {
-  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.delete('/api/users/:userId', requireUserId, requireSelf, (req, res) => {
   const userId = req.user.user_id;
   purgeUser(userId, (err) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to delete account' });
@@ -1116,9 +1109,7 @@ app.delete('/api/users/:userId', requireUserId, (req, res) => {
   });
 });
 
-app.get('/api/users/:userId/notifications', requireUserId, (req, res) => {  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.get('/api/users/:userId/notifications', requireUserId, requireSelf, (req, res) => {
   getAllNotifications(req.user.user_id, (err, notifications) => {
     if (err) return res.status(500).json({ success: false, error: 'Failed to fetch notifications' });
     res.status(200).json(notifications);
@@ -1138,10 +1129,7 @@ app.post('/api/sessions', requireUserId, (req, res) => {
 });
 
 // GET /api/users/:userId/sessions — list all browser sessions for the user
-app.get('/api/users/:userId/sessions', requireUserId, (req, res) => {
-  if (req.params.userId !== req.user.user_id) {
-    return res.status(403).json({ success: false, error: 'Forbidden' });
-  }
+app.get('/api/users/:userId/sessions', requireUserId, requireSelf, (req, res) => {
   getSessionsForUser(req.user.user_id, (err, rows) => {
     if (err) return res.status(500).json({ success: false, error: 'DB error' });
     res.status(200).json({ success: true, sessions: rows });
@@ -1210,12 +1198,7 @@ app.post('/api/fcm/resync', requireUserId, async (req, res) => {
       } else {
         const e = result.reason;
         console.error('FCM resync error for token', tokens[i], ':', e.message);
-        if (
-          e.code === 'messaging/registration-token-not-registered' ||
-          e.code === 'messaging/invalid-registration-token'
-        ) {
-          deleteDeviceToken(tokens[i], () => {});
-        }
+        handleInvalidFcmToken(tokens[i], e);
       }
     });
     res.status(200).json({ success: true, sent });

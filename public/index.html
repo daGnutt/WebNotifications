@@ -1129,14 +1129,14 @@ function connectSSE(userId) {
                 list.innerHTML = '';
                 data.sessions.forEach(s => {
                     const isThis = s.session_id === currentSessionId;
-                    const age = formatRelativeTime(s.last_active);
+                    const age = relativeTime(s.last_active);
                     const row = document.createElement('div');
                     row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:1px solid var(--border-color);font-size:12px';
                     row.innerHTML = `
-                        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escHtml(s.browser_label || 'Unknown')}">${escHtml(s.browser_label || 'Unknown')}</span>
+                        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${escapeHtml(s.browser_label || 'Unknown')}">${escapeHtml(s.browser_label || 'Unknown')}</span>
                         ${isThis ? '<span style="font-size:10px;background:var(--accent-color,#4a9eff);color:#fff;border-radius:3px;padding:1px 5px;flex-shrink:0">this browser</span>' : ''}
-                        <span style="opacity:0.5;white-space:nowrap;flex-shrink:0">${escHtml(age)}</span>
-                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" ${isThis ? 'disabled title="Cannot log out current session here — use Sign Out"' : ''} onclick="revokeSession('${escHtml(s.session_id)}',this)">Log out</button>
+                        <span style="opacity:0.5;white-space:nowrap;flex-shrink:0">${escapeHtml(age)}</span>
+                        <button class="btn btn-secondary" style="padding:2px 8px;font-size:11px;flex-shrink:0" ${isThis ? 'disabled title="Cannot log out current session here — use Sign Out"' : ''} onclick="revokeSession('${escapeHtml(s.session_id)}',this)">Log out</button>
                     `;
                     list.appendChild(row);
                 });
@@ -1145,20 +1145,6 @@ function connectSSE(userId) {
             }
         }
 
-        function formatRelativeTime(isoString) {
-            if (!isoString) return 'unknown';
-            const diff = Date.now() - new Date(isoString).getTime();
-            const mins = Math.floor(diff / 60000);
-            if (mins < 1) return 'just now';
-            if (mins < 60) return `${mins}m ago`;
-            const hours = Math.floor(mins / 60);
-            if (hours < 24) return `${hours}h ago`;
-            return `${Math.floor(hours / 24)}d ago`;
-        }
-
-        function escHtml(str) {
-            return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-        }
 
         async function revokeSession(sessionId, btn) {
             if (!currentUser) return;
@@ -1241,19 +1227,22 @@ function connectSSE(userId) {
             logout();
         }
 
+        async function savePreference(localKey, serverKey, value) {
+            if (!currentUser) return;
+            currentUser[localKey] = value;
+            localStorage.setItem('currentUser', JSON.stringify(currentUser));
+            try {
+                await fetch(`/api/users/${currentUser.userId}/preferences`, {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ userId: currentUser.userId, [serverKey]: value })
+                });
+            } catch (e) { console.error('Failed to save preference:', e); }
+        }
+
         async function toggleShowAppName(checked) {
             document.body.classList.toggle('show-app-name', checked);
-            if (currentUser) {
-                currentUser.showAppName = checked;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                try {
-                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUser.userId, show_app_name: checked ? 1 : 0 })
-                    });
-                } catch (e) { console.error('Failed to save preference:', e); }
-            }
+            await savePreference('showAppName', 'show_app_name', checked ? 1 : 0);
         }
 
         async function toggleDisableHeadsUp(checked) {
@@ -1266,46 +1255,16 @@ function connectSSE(userId) {
                 highlightCb.checked = false;
                 await toggleDisableHighlight(false);
             }
-            if (currentUser) {
-                currentUser.disableHeadsUp = checked;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                try {
-                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUser.userId, disable_heads_up: checked ? 1 : 0 })
-                    });
-                } catch (e) { console.error('Failed to save preference:', e); }
-            }
+            await savePreference('disableHeadsUp', 'disable_heads_up', checked ? 1 : 0);
         }
 
         async function toggleDisableHighlight(checked) {
-            if (currentUser) {
-                currentUser.disableHighlight = checked;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                try {
-                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUser.userId, disable_notification_highlight: checked ? 1 : 0 })
-                    });
-                } catch (e) { console.error('Failed to save preference:', e); }
-            }
+            await savePreference('disableHighlight', 'disable_notification_highlight', checked ? 1 : 0);
         }
 
         async function toggleSuppressPushWhenOpen(checked) {
-            if (currentUser) {
-                currentUser.suppressPushWhenOpen = checked;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                syncSuppressPushToServiceWorker();
-                try {
-                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUser.userId, suppress_push_when_open: checked ? 1 : 0 })
-                    });
-                } catch (e) { console.error('Failed to save preference:', e); }
-            }
+            await savePreference('suppressPushWhenOpen', 'suppress_push_when_open', checked ? 1 : 0);
+            syncSuppressPushToServiceWorker();
         }
 
         function syncSuppressPushToServiceWorker() {
@@ -1328,17 +1287,7 @@ function connectSSE(userId) {
 
         async function saveReadDelaySecs(secs) {
             const validated = Math.max(0, Math.min(3600, isNaN(secs) ? 3 : secs));
-            if (currentUser) {
-                currentUser.readDelaySecs = validated;
-                localStorage.setItem('currentUser', JSON.stringify(currentUser));
-                try {
-                    await fetch(`/api/users/${currentUser.userId}/preferences`, {
-                        method: 'PATCH',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ userId: currentUser.userId, read_delay_secs: validated })
-                    });
-                } catch (e) { console.error('Failed to save preference:', e); }
-            }
+            await savePreference('readDelaySecs', 'read_delay_secs', validated);
         }
 
         function restoreSession() {
