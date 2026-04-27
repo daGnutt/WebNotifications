@@ -816,6 +816,7 @@
         let sseFallbackInterval = null;
         let currentSessionId = null;
         let backendFailures = 0;     // consecutive fetchNotifications failures
+        let replyDrafts = new Map(); // keyed by notification id, action index, and action key
 
         function detectBrowserLabel() {
             const ua = navigator.userAgent;
@@ -1201,6 +1202,7 @@ function connectSSE(userId) {
             showHiddenNotifications = false;
             knownApps = new Set();
             allNotifications = [];
+            replyDrafts.clear();
             initialLoadDone = false;
             localStorage.removeItem('currentUser');
             localStorage.removeItem('sessionId');
@@ -1471,6 +1473,7 @@ function connectSSE(userId) {
         // ── Notifications ────────────────────────────────────────────────────
         async function fetchNotifications() {
             if (!currentUser) {
+                replyDrafts.clear();
                 document.getElementById('notifications-container').innerHTML =
                     '<div class="no-notifications">Sign in to view your notifications</div>';
                 return;
@@ -1552,7 +1555,9 @@ function connectSSE(userId) {
         }
 
         function showBackendDown() {
-            document.getElementById('notifications-container').innerHTML = `
+            const container = document.getElementById('notifications-container');
+            captureReplyDrafts(container);
+            container.innerHTML = `
                 <div class="backend-down">
                     <span class="backend-down-whale">🐋</span>
                     <div class="backend-down-title">Backend is unreachable</div>
@@ -1594,6 +1599,12 @@ function connectSSE(userId) {
                 </div>`;
         }
 
+        function replaceNotificationsHtml(container, html, notifications) {
+            captureReplyDrafts(container);
+            container.innerHTML = html;
+            restoreReplyDrafts(container, notifications);
+        }
+
         function displayNotifications(notifications, newIds = new Set()) {
             const container = document.getElementById('notifications-container');
 
@@ -1613,9 +1624,9 @@ function connectSSE(userId) {
                     if (showHiddenNotifications) {
                         html += filtered.map(n => renderNotificationCard(n, newIds, true)).join('');
                     }
-                    container.innerHTML = html;
+                    replaceNotificationsHtml(container, html, notifications);
                 } else {
-                    container.innerHTML = '<div class="no-notifications">No active notifications</div>';
+                    replaceNotificationsHtml(container, '<div class="no-notifications">No active notifications</div>', notifications);
                 }
                 return;
             }
@@ -1640,7 +1651,7 @@ function connectSSE(userId) {
                 }
             }
 
-            container.innerHTML = html;
+            replaceNotificationsHtml(container, html, notifications);
         }
 
         function toggleHiddenNotifications() {
@@ -1675,6 +1686,75 @@ function connectSSE(userId) {
             return action.semanticAction;
         }
 
+        function replyDraftKey(nid, idx, key) {
+            return JSON.stringify([String(nid), String(idx), String(key ?? '')]);
+        }
+
+        function replyDraftInputKey(input) {
+            return replyDraftKey(input.dataset.notificationId, input.dataset.actionIndex, input.dataset.actionKey);
+        }
+
+        function saveReplyDraft(input) {
+            if (!input) return;
+            const row = input.closest('.reply-row');
+            if (!row?.classList.contains('open')) return;
+            replyDrafts.set(replyDraftInputKey(input), {
+                notificationId: input.dataset.notificationId,
+                actionIndex: input.dataset.actionIndex,
+                actionKey: input.dataset.actionKey,
+                value: input.value
+            });
+        }
+
+        function clearReplyDraft(nid, idx, key) {
+            replyDrafts.delete(replyDraftKey(nid, idx, key));
+        }
+
+        function clearReplyDraftsForNotification(nid) {
+            for (const [key, draft] of replyDrafts.entries()) {
+                if (draft.notificationId === String(nid)) replyDrafts.delete(key);
+            }
+        }
+
+        function captureReplyDrafts(container) {
+            if (!container) return;
+            container.querySelectorAll('input[data-reply-input]').forEach(input => {
+                const row = input.closest('.reply-row');
+                if (row?.classList.contains('open')) {
+                    saveReplyDraft(input);
+                } else {
+                    clearReplyDraft(input.dataset.notificationId, input.dataset.actionIndex, input.dataset.actionKey);
+                }
+            });
+        }
+
+        function validReplyDraftKeys(notifications) {
+            const keys = new Set();
+            notifications.forEach(notification => {
+                if (!notification.actions || notification.actionTaken) return;
+                notification.actions.forEach((action, i) => {
+                    if (!isReplyAction(action)) return;
+                    keys.add(replyDraftKey(notification.id, i, actionKey(action)));
+                });
+            });
+            return keys;
+        }
+
+        function restoreReplyDrafts(container, notifications) {
+            const validKeys = validReplyDraftKeys(notifications);
+            for (const key of replyDrafts.keys()) {
+                if (!validKeys.has(key)) replyDrafts.delete(key);
+            }
+
+            container.querySelectorAll('input[data-reply-input]').forEach(input => {
+                const draft = replyDrafts.get(replyDraftInputKey(input));
+                if (!draft) return;
+
+                input.value = draft.value;
+                input.closest('.reply-row')?.classList.add('open');
+            });
+        }
+
         function renderSentAction(notification) {
             const { actionTaken, actionResponse, actionDispatched } = notification;
             if (!actionTaken) return '';
@@ -1706,7 +1786,7 @@ function connectSSE(userId) {
                 if (isReplyAction(action)) {
                     const ph = escapeHtml(action.title || 'Reply…');
                     return `<button class="action-button" id="reply-btn-${escapedNid}-${escapedIdx}" data-reply-toggle data-notification-id="${escapedNid}" data-action-index="${escapedIdx}">↩ ${ph}</button>
-                        <div class="reply-row" id="reply-row-${nid}-${i}">
+                        <div class="reply-row" id="reply-row-${escapedNid}-${escapedIdx}">
                             <input type="text" class="reply-input" id="reply-input-${escapedNid}-${escapedIdx}" placeholder="${ph}"
                                    data-reply-input data-notification-id="${escapedNid}" data-action-key="${escapedKey}" data-action-index="${escapedIdx}">
                             <button class="action-button" data-reply-submit data-notification-id="${escapedNid}" data-action-key="${escapedKey}" data-action-index="${escapedIdx}">Send</button>
@@ -1755,13 +1835,24 @@ function connectSSE(userId) {
                     toggleReply(input.dataset.notificationId, input.dataset.actionIndex);
                 }
             });
+
+            container.addEventListener('input', (event) => {
+                const input = event.target.closest('input[data-reply-input]');
+                if (input && container.contains(input)) saveReplyDraft(input);
+            });
         }
 
         function toggleReply(nid, idx) {
             const row = document.getElementById(`reply-row-${nid}-${idx}`);
             const isOpen = row.classList.toggle('open');
-            if (isOpen) row.querySelector('input').focus();
-            else row.querySelector('input').value = '';
+            const input = row.querySelector('input[data-reply-input]');
+            if (isOpen) {
+                saveReplyDraft(input);
+                input.focus();
+            } else {
+                input.value = '';
+                clearReplyDraft(nid, idx, input.dataset.actionKey);
+            }
         }
 
         function submitReply(nid, key, inputEl, idx) {
@@ -1769,6 +1860,7 @@ function connectSSE(userId) {
             if (!value) return;
             // Give immediate visual feedback: close the row before the SSE round-trip
             inputEl.value = '';
+            clearReplyDraft(nid, idx, key);
             const row = document.getElementById(`reply-row-${nid}-${idx}`);
             if (row) row.classList.remove('open');
             handleAction(nid, key, value);
@@ -1959,6 +2051,7 @@ function connectSSE(userId) {
             try { data = JSON.parse(e.data); } catch {}
 
             if (data.reason === 'delete' && data.id) {
+                clearReplyDraftsForNotification(data.id);
                 const el = document.getElementById(`notification-${data.id}`);
                 if (el) await animateBackendRemoval(el, data.id);
                 // If card is already gone (we dismissed it locally), nothing to do
@@ -2002,6 +2095,7 @@ function connectSSE(userId) {
             const el = document.getElementById(`notification-${id}`);
             if (!el) return;
             // UI-initiated: instant removal, no animation
+            clearReplyDraftsForNotification(id);
             el.remove();
             shownNotificationIds.delete(id);
             updateTitleWithCount();
