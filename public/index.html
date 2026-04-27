@@ -1695,27 +1695,66 @@ function connectSSE(userId) {
             // Hide buttons once an action has already been taken — matches Android behaviour
             if (notification.actionTaken) return '';
             const nid = notification.id;
+            const escapedNid = escapeHtml(nid);
 
             const parts = notification.actions.map((action, i) => {
+                const idx = String(i);
+                const escapedIdx = escapeHtml(idx);
+                const key = actionKey(action);
+                const escapedKey = escapeHtml(key);
+
                 if (isReplyAction(action)) {
-                    const ph = (action.title || 'Reply…').replace(/"/g, '&quot;');
-                    const key = actionKey(action);
-                    return `<button class="action-button" id="reply-btn-${nid}-${i}" onclick="toggleReply('${nid}', '${i}')">↩ ${ph}</button>
+                    const ph = escapeHtml(action.title || 'Reply…');
+                    return `<button class="action-button" id="reply-btn-${escapedNid}-${escapedIdx}" data-reply-toggle data-notification-id="${escapedNid}" data-action-index="${escapedIdx}">↩ ${ph}</button>
                         <div class="reply-row" id="reply-row-${nid}-${i}">
-                            <input type="text" class="reply-input" id="reply-input-${nid}-${i}" placeholder="${ph}"
-                                   onkeydown="if(event.key==='Enter'&&this.value.trim()){submitReply('${nid}','${key}',this,'${i}')}else if(event.key==='Escape'){toggleReply('${nid}','${i}')}">
-                            <button class="action-button" onclick="submitReply('${nid}', '${key}', document.getElementById('reply-input-${nid}-${i}'), '${i}')">Send</button>
+                            <input type="text" class="reply-input" id="reply-input-${escapedNid}-${escapedIdx}" placeholder="${ph}"
+                                   data-reply-input data-notification-id="${escapedNid}" data-action-key="${escapedKey}" data-action-index="${escapedIdx}">
+                            <button class="action-button" data-reply-submit data-notification-id="${escapedNid}" data-action-key="${escapedKey}" data-action-index="${escapedIdx}">Send</button>
                         </div>`;
                 }
                 const icon  = SEMANTIC_ICONS[action.semanticAction] || '';
                 const title = action.title || '';
                 const label = icon && title ? `${icon} ${title}` : (icon || title || 'Action');
                 const neutral = SEMANTIC_NEUTRAL.has(action.semanticAction) ? ' semantic-neutral' : '';
-                const key = actionKey(action);
-                return `<button class="action-button${neutral}" onclick="handleAction('${nid}', '${key}')">${label}</button>`;
+                return `<button class="action-button${neutral}" data-notification-action data-notification-id="${escapedNid}" data-action-key="${escapedKey}">${escapeHtml(label)}</button>`;
             });
 
             return `<div class="notification-actions">${parts.join('')}</div>`;
+        }
+
+        function bindNotificationActionEvents() {
+            const container = document.getElementById('notifications-container');
+            if (!container || container.dataset.actionEventsBound) return;
+            container.dataset.actionEventsBound = 'true';
+
+            container.addEventListener('click', (event) => {
+                const target = event.target.closest('[data-reply-toggle], [data-reply-submit], [data-notification-action]');
+                if (!target || !container.contains(target)) return;
+
+                if (target.dataset.replyToggle !== undefined) {
+                    toggleReply(target.dataset.notificationId, target.dataset.actionIndex);
+                    return;
+                }
+
+                if (target.dataset.replySubmit !== undefined) {
+                    const input = document.getElementById(`reply-input-${target.dataset.notificationId}-${target.dataset.actionIndex}`);
+                    if (input) submitReply(target.dataset.notificationId, target.dataset.actionKey, input, target.dataset.actionIndex);
+                    return;
+                }
+
+                handleAction(target.dataset.notificationId, target.dataset.actionKey);
+            });
+
+            container.addEventListener('keydown', (event) => {
+                const input = event.target.closest('input[data-reply-input]');
+                if (!input || !container.contains(input)) return;
+
+                if (event.key === 'Enter' && input.value.trim()) {
+                    submitReply(input.dataset.notificationId, input.dataset.actionKey, input, input.dataset.actionIndex);
+                } else if (event.key === 'Escape') {
+                    toggleReply(input.dataset.notificationId, input.dataset.actionIndex);
+                }
+            });
         }
 
         function toggleReply(nid, idx) {
@@ -1736,8 +1775,8 @@ function connectSSE(userId) {
         }
 
         function escapeHtml(str) {
-            if (!str) return '';
-            return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            if (str == null) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
         }
 
         function safeIntent(intent) {
@@ -2144,6 +2183,7 @@ function connectSSE(userId) {
         registerServiceWorker();
         requestNotificationPermission();
         updateFavicon(0, 0);
+        bindNotificationActionEvents();
 
         if (new URLSearchParams(location.search).has('demo')) {
             document.body.classList.add('demo-mode');
