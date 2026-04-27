@@ -856,13 +856,6 @@ app.post('/api/notifications/:id/actions', requireUserId, (req, res) => {
   if (response != null) fcmPayload.actionResponse = String(response);
   sendFcmDataMessages(userId, fcmPayload)
     .catch(e => console.error('FCM action error:', e.message));
-  // Auto-confirm after 30 s if the Android device never calls /dispatched (e.g. offline)
-  setTimeout(() => {
-    if (notification.actionTaken && !notification.actionDispatched) {
-      notification.actionDispatched = true;
-      broadcastToUser(userId, 'update', { reason: 'action', id });
-    }
-  }, 30000);
   res.status(200).json({ success: true });
 });
 
