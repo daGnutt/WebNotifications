@@ -318,7 +318,7 @@ function addNotification(notification, userId, callback) {
   seenApps.get(key).add(notification.appName || null);
   if (userId) {
     const stmt = db.prepare('INSERT OR REPLACE INTO notifications (id, user_id, payload, received_at) VALUES (?, ?, ?, ?)');
-    stmt.run([notification.id, userId, JSON.stringify(notification), notification.timestamp || new Date().toISOString()], (err) => {
+    stmt.run([notification.id, userId, JSON.stringify(notification), new Date().toISOString()], (err) => {
       if (err) console.error('Error persisting notification:', err.message);
       if (callback) callback(null);
     });
