@@ -706,6 +706,121 @@ All error responses share a common shape:
 }
 ```
 
+---
+
+## Media Sessions
+
+Active `MediaSession`s on the Android phone are reported to the server in real-time. The server keeps them in an **in-memory store** (no persistence — sessions are re-reported on reconnect). The web UI displays live player cards with album art, a seek bar, and transport controls.
+
+#### `PUT /api/media-sessions/:sessionId`
+
+Upsert a media session. Called from the Android app whenever playback state or metadata changes.
+
+`:sessionId` is the package name of the media app (e.g. `com.google.android.apps.youtube.music`).
+
+**Request body**
+
+```json
+{
+  "userId": "<uuid>",
+  "packageName": "com.google.android.apps.youtube.music",
+  "appName": "YouTube Music",
+  "appIcon": "<base64 PNG>",
+  "title": "Let The Good Times Roll",
+  "artist": "Electric Callboy",
+  "album": "Tekkno",
+  "albumArt": "<base64 PNG, max 256 px>",
+  "playbackState": "playing",
+  "positionMs": 42000,
+  "durationMs": 210000
+}
+```
+
+After upsert the server broadcasts `{ reason: "media-update", sessionId }` on the user's SSE stream.
+
+**Responses**
+
+| Status | Description |
+|--------|-------------|
+| `200`  | `{ success: true }` |
+| `401`  | Invalid or missing userId |
+
+---
+
+#### `DELETE /api/media-sessions/:sessionId`
+
+Remove a media session (called when the session ends on the device).
+
+**Query parameters:** `?userId=<uuid>`
+
+After deletion the server broadcasts `{ reason: "media-delete", sessionId }` on the user's SSE stream.
+
+**Responses**
+
+| Status | Description |
+|--------|-------------|
+| `200`  | `{ success: true }` |
+| `401`  | Invalid or missing userId |
+
+---
+
+#### `GET /api/media-sessions`
+
+Return all active media sessions for the authenticated user.
+
+**Query parameters:** `?userId=<uuid>`
+
+**Response** — array of session objects:
+
+```json
+[
+  {
+    "sessionId": "com.spotify.music",
+    "packageName": "com.spotify.music",
+    "appName": "Spotify",
+    "title": "...",
+    "artist": "...",
+    "album": "...",
+    "albumArt": "<base64 PNG>",
+    "playbackState": "paused",
+    "positionMs": 12000,
+    "durationMs": 240000,
+    "updatedAt": "2026-06-08T09:00:00.000Z"
+  }
+]
+```
+
+---
+
+#### `POST /api/media-sessions/:sessionId/control`
+
+Send a transport control command to the Android device via FCM.
+
+**Request body**
+
+```json
+{
+  "userId": "<uuid>",
+  "action": "play | pause | next | previous | seekTo",
+  "positionMs": 42000
+}
+```
+
+`positionMs` is required only for `seekTo`.
+
+The server sends FCM data message: `{ type: "mediaControl", sessionId, mediaAction, positionMs? }`.
+
+**Responses**
+
+| Status | Description |
+|--------|-------------|
+| `200`  | `{ success: true }` — FCM sent |
+| `400`  | Missing `action` field |
+| `401`  | Invalid or missing userId |
+| `500`  | FCM delivery error |
+
+---
+
 ## Notes
 
 - **Notifications are persisted to SQLite** and reloaded into memory on startup. On restart the server sends an FCM `resync` message to all registered Android devices so they can re-POST any locally buffered notifications that arrived during the downtime.

@@ -68,9 +68,35 @@ const sseClients = new Map();
 // In-memory notifications store: userId -> notification[]
 const notificationsStore = new Map();
 
+// In-memory media sessions store: userId -> Map<sessionId, session>
+const mediaSessionsStore = new Map();
+
 // In-memory set of all app names ever seen per user: userId -> Set<appName|null>
 // Intentionally ephemeral — cleared on restart.
 const seenApps = new Map();
+
+// In-memory media sessions store: userId -> Map<sessionId, session>
+// Sessions are reported by the Android app via PUT /api/media-sessions/:sessionId and removed
+// via DELETE. No persistence needed — sessions are re-reported on reconnect.
+const mediaSessionsStore = new Map();
+
+function upsertMediaSession(userId, sessionId, data) {
+  if (!mediaSessionsStore.has(userId)) mediaSessionsStore.set(userId, new Map());
+  mediaSessionsStore.get(userId).set(sessionId, { sessionId, ...data, updatedAt: new Date().toISOString() });
+}
+
+function removeMediaSession(userId, sessionId) {
+  const sessions = mediaSessionsStore.get(userId);
+  if (!sessions) return false;
+  const existed = sessions.delete(sessionId);
+  if (sessions.size === 0) mediaSessionsStore.delete(userId);
+  return existed;
+}
+
+function getMediaSessionsForUser(userId) {
+  const sessions = mediaSessionsStore.get(userId);
+  return sessions ? Array.from(sessions.values()) : [];
+}
 
 function broadcastToUser(userId, event, data) {
   const sessions = sseClients.get(userId);
@@ -94,6 +120,8 @@ function disconnectSseClients(userId) {
 // Delete a user and all their associated data from every table.
 function purgeUser(userId, callback) {
   notificationsStore.delete(userId);
+  mediaSessionsStore.delete(userId);
+  mediaSessionsStore.delete(userId);
   db.serialize(() => {
     db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
     db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
@@ -119,7 +147,7 @@ if (!vapidKeys.publicKey || !vapidKeys.privateKey) {
 // Middleware
 app.use(cors({
   origin: process.env.ALLOWED_ORIGIN || false,
-  methods: ['GET', 'POST', 'DELETE', 'PATCH'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 app.use(bodyParser.json());
@@ -373,6 +401,25 @@ function loadNotificationsFromDb(callback) {
     console.log(`Loaded ${rows.length} notification(s) from database`);
     if (callback) callback();
   });
+}
+
+// Media session helpers (in-memory only — sessions are re-reported on Android reconnect)
+function upsertMediaSession(userId, sessionId, data, callback) {
+  if (!mediaSessionsStore.has(userId)) mediaSessionsStore.set(userId, new Map());
+  mediaSessionsStore.get(userId).set(sessionId, { ...data, sessionId });
+  if (callback) callback(null);
+}
+
+function deleteMediaSession(userId, sessionId, callback) {
+  const userSessions = mediaSessionsStore.get(userId);
+  if (userSessions) userSessions.delete(sessionId);
+  if (callback) callback(null);
+}
+
+function getMediaSessionsForUser(userId, callback) {
+  const userSessions = mediaSessionsStore.get(userId);
+  const sessions = userSessions ? Array.from(userSessions.values()) : [];
+  callback(null, sessions);
 }
 
 // Password hashing helpers (using built-in crypto — no extra deps)
@@ -881,6 +928,58 @@ app.post('/api/notifications/:id/actions/dispatched', requireUserId, (req, res) 
   persistNotification(userId, notification);
   broadcastToUser(userId, 'update', { reason: 'action', id });
   res.status(200).json({ success: true });
+});
+
+// ─── Media session endpoints ──────────────────────────────────────────────────
+
+// PUT /api/media-sessions/:sessionId — upsert a media session state from the Android app.
+// Called whenever playback state or metadata changes on the device.
+app.put('/api/media-sessions/:sessionId', requireUserId, (req, res) => {
+  const userId = req.user.user_id;
+  const sessionId = req.params.sessionId;
+  const { userId: _uid, ...data } = req.body;
+
+  upsertMediaSession(userId, sessionId, data);
+  broadcastToUser(userId, 'update', { reason: 'media-update', sessionId });
+  res.status(200).json({ success: true });
+});
+
+// DELETE /api/media-sessions/:sessionId — remove a media session when it ends on the device.
+app.delete('/api/media-sessions/:sessionId', requireUserId, (req, res) => {
+  const userId = req.user.user_id;
+  const sessionId = req.params.sessionId;
+
+  removeMediaSession(userId, sessionId);
+  broadcastToUser(userId, 'update', { reason: 'media-delete', sessionId });
+  res.status(200).json({ success: true });
+});
+
+// GET /api/media-sessions — return all active media sessions for the authenticated user.
+app.get('/api/media-sessions', requireUserId, (req, res) => {
+  res.status(200).json(getMediaSessionsForUser(req.user.user_id));
+});
+
+// POST /api/media-sessions/:sessionId/control — send a transport control command to the device.
+// Body: { action: "play"|"pause"|"next"|"previous"|"seekTo", positionMs?: number }
+app.post('/api/media-sessions/:sessionId/control', requireUserId, async (req, res) => {
+  const userId = req.user.user_id;
+  const sessionId = req.params.sessionId;
+  const { action, positionMs } = req.body;
+
+  if (!action) {
+    return res.status(400).json({ success: false, error: 'action is required' });
+  }
+
+  const fcmPayload = { type: 'mediaControl', sessionId: String(sessionId), mediaAction: String(action) };
+  if (positionMs != null) fcmPayload.positionMs = String(positionMs);
+
+  try {
+    await sendFcmDataMessages(userId, fcmPayload);
+    res.status(200).json({ success: true });
+  } catch (e) {
+    console.error('FCM mediaControl error:', e.message);
+    res.status(500).json({ success: false, error: 'Failed to send FCM message' });
+  }
 });
 
 // User management API endpoints

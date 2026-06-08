@@ -148,6 +148,8 @@ New notifications are delivered in real-time via **Server-Sent Events** (SSE) wh
 
 Silent notifications (those with `isSilent: true`) are displayed in a separate **🔇 Silent** section below regular notifications.
 
+Active media players on the Android device appear as **live player cards** above the notification list. Each card shows album art, title, artist, a seek bar, and ⏮ ▶/⏸ ⏭ transport controls. Commands are relayed to the phone via FCM. Multiple simultaneous sessions (e.g. Spotify and a podcast app) each get their own card.
+
 ## API
 
 > **All data endpoints require a valid `userId`** (obtained from `POST /api/auth`). Requests without a recognised `userId` return `401 Unauthorized`. The only unauthenticated endpoints are `/api/auth`, `/api/auth/reset-*`, and `/api/vapid-public-key`.
@@ -239,6 +241,17 @@ Request request = new Request.Builder()
     .build();
 client.newCall(request).enqueue(callback);
 ```
+
+### Media Sessions
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `PUT` | `/api/media-sessions/:sessionId` | Upsert a media session (called from Android on state/metadata change). |
+| `DELETE` | `/api/media-sessions/:sessionId?userId=<id>` | Remove a media session when it ends. |
+| `GET` | `/api/media-sessions?userId=<id>` | List all active media sessions for the user. |
+| `POST` | `/api/media-sessions/:sessionId/control` | Send a transport control command (`play`, `pause`, `next`, `previous`, `seekTo`) to the Android device via FCM. |
+
+Sessions are **in-memory only** (not persisted) — the Android app re-reports them on reconnect.
 
 ### Handling action replies from the web UI
 

@@ -636,6 +636,151 @@
         .btn-primary { background-color: #4CAF50; color: white; }
         .btn-secondary { background-color: var(--border-color); color: var(--text-color); }
         .btn-danger { background-color: #f44336; color: white; }
+
+        /* ── Media player cards ───────────────────────────────────────── */
+        #media-players-container:not(:empty) {
+            margin-bottom: 8px;
+        }
+        .media-player-card {
+            background-color: var(--card-bg);
+            border-radius: 8px;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            border: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: background-color 0.3s, border-color 0.3s;
+        }
+        .media-album-art {
+            width: 56px;
+            height: 56px;
+            border-radius: 6px;
+            object-fit: cover;
+            flex-shrink: 0;
+            background-color: var(--border-color);
+        }
+        .media-album-art-placeholder {
+            width: 56px;
+            height: 56px;
+            border-radius: 6px;
+            flex-shrink: 0;
+            background-color: var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 26px;
+            color: var(--header-color);
+        }
+        .media-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .media-title {
+            font-weight: bold;
+            font-size: 14px;
+            color: var(--text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .media-artist {
+            font-size: 12px;
+            color: var(--header-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-top: 1px;
+        }
+        .media-app-row {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            margin-top: 4px;
+        }
+        .media-app-icon {
+            width: 14px;
+            height: 14px;
+            border-radius: 3px;
+            object-fit: cover;
+        }
+        .media-app-name {
+            font-size: 11px;
+            color: var(--header-color);
+        }
+        .media-seek-row {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            margin-top: 6px;
+        }
+        .media-seek {
+            flex: 1;
+            -webkit-appearance: none;
+            appearance: none;
+            height: 4px;
+            border-radius: 2px;
+            background: var(--border-color);
+            outline: none;
+            cursor: pointer;
+        }
+        .media-seek::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--action-bg);
+            cursor: pointer;
+        }
+        .media-seek::-moz-range-thumb {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: var(--action-bg);
+            border: none;
+            cursor: pointer;
+        }
+        .media-time {
+            font-size: 10px;
+            color: var(--header-color);
+            white-space: nowrap;
+            min-width: 36px;
+            text-align: right;
+        }
+        .media-controls {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            flex-shrink: 0;
+        }
+        .media-btn {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 18px;
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: background-color 0.15s;
+            padding: 0;
+        }
+        .media-btn:hover { background-color: rgba(0,0,0,0.08); }
+        @media (prefers-color-scheme: dark) {
+            .media-btn:hover { background-color: rgba(255,255,255,0.1); }
+        }
+        .media-btn-play {
+            width: 42px;
+            height: 42px;
+            font-size: 22px;
+            background-color: var(--action-bg);
+            color: white;
+        }
+        .media-btn-play:hover { filter: brightness(1.1); background-color: var(--action-bg); }
     </style>
     <script src="/qrcode.min.js"></script>
 </head>
@@ -643,6 +788,7 @@
     <div class="notification-indicator" id="notification-indicator"></div>
 
     <h1><img src="/favicon.svg" width="32" height="32" style="vertical-align:middle;margin-right:8px;">Web Notifications</h1>
+    <div id="media-players-container"></div>
     <div id="notifications-container"></div>
 
     <!-- Floating action button -->
@@ -817,6 +963,11 @@
         let currentSessionId = null;
         let backendFailures = 0;     // consecutive fetchNotifications failures
         let replyDrafts = new Map(); // keyed by notification id, action index, and action key
+
+        // Media session state: sessionId -> session object
+        const mediaSessions = new Map();
+        // Per-session position timers that advance position locally while playing
+        const mediaPositionTimers = new Map();
 
         function detectBrowserLabel() {
             const ua = navigator.userAgent;
@@ -1019,6 +1170,7 @@ function connectSSE(userId) {
 
             subscribeToPushNotifications();
             fetchNotifications();
+            fetchMediaSessions();
             connectSSE(user.userId);
             refreshFcmStatus();
             closeFlyout();
@@ -1994,12 +2146,178 @@ function connectSSE(userId) {
             tick();
         }
 
+        // ── Media session functions ──────────────────────────────────────────
+
+        async function fetchMediaSessions() {
+            if (!currentUser) return;
+            try {
+                const res = await fetch(`/api/media-sessions?userId=${encodeURIComponent(currentUser.userId)}`);
+                if (!res.ok) return;
+                const sessions = await res.json();
+                mediaSessions.clear();
+                sessions.forEach(s => mediaSessions.set(s.sessionId, s));
+                renderMediaPlayers();
+            } catch (e) {
+                // Non-fatal — media sessions are best-effort
+            }
+        }
+
+        function removeMediaSessionCard(sessionId) {
+            mediaSessions.delete(sessionId);
+            stopPositionTimer(sessionId);
+            const el = document.getElementById(`media-player-${CSS.escape(sessionId)}`);
+            if (el) el.remove();
+        }
+
+        function formatMediaTime(ms) {
+            if (!ms || ms <= 0) return '0:00';
+            const totalSec = Math.floor(ms / 1000);
+            const m = Math.floor(totalSec / 60);
+            const s = totalSec % 60;
+            return `${m}:${s.toString().padStart(2, '0')}`;
+        }
+
+        function renderMediaPlayers() {
+            const container = document.getElementById('media-players-container');
+            if (!container) return;
+
+            // Stop all old timers; they will be restarted for playing sessions
+            mediaPositionTimers.forEach((_, id) => stopPositionTimer(id));
+
+            if (mediaSessions.size === 0) {
+                container.innerHTML = '';
+                return;
+            }
+
+            container.innerHTML = Array.from(mediaSessions.values())
+                .map(s => renderMediaPlayerCard(s))
+                .join('');
+
+            // Start position timers for playing sessions
+            mediaSessions.forEach(s => {
+                if (s.playbackState === 'playing') startPositionTimer(s);
+            });
+        }
+
+        function renderMediaPlayerCard(session) {
+            const sessionId = session.sessionId;
+            const isPlaying = session.playbackState === 'playing';
+            const artHtml = session.albumArt
+                ? `<img class="media-album-art" src="data:image/png;base64,${session.albumArt}" alt="" onerror="this.style.display='none'">`
+                : `<div class="media-album-art-placeholder">♫</div>`;
+            const appIconHtml = session.appIcon
+                ? `<img class="media-app-icon" src="data:image/png;base64,${session.appIcon}" alt="" onerror="this.style.display='none'">`
+                : '';
+            const title = session.title || session.packageName || sessionId;
+            const artist = [session.artist, session.album].filter(Boolean).join(' · ');
+            const posMs = session._localPositionMs ?? session.positionMs ?? 0;
+            const durMs = session.durationMs || 0;
+            const seekPct = durMs > 0 ? Math.min(100, (posMs / durMs) * 100) : 0;
+
+            return `
+            <div class="media-player-card" id="media-player-${sessionId}">
+                ${artHtml}
+                <div class="media-info">
+                    <div class="media-title">${escapeHtml(title)}</div>
+                    ${artist ? `<div class="media-artist">${escapeHtml(artist)}</div>` : ''}
+                    <div class="media-app-row">
+                        ${appIconHtml}
+                        <span class="media-app-name">${escapeHtml(session.appName || session.packageName || '')}</span>
+                    </div>
+                    ${durMs > 0 ? `
+                    <div class="media-seek-row">
+                        <span class="media-time" id="media-pos-${sessionId}">${formatMediaTime(posMs)}</span>
+                        <input class="media-seek" type="range" min="0" max="${durMs}"
+                               value="${posMs}" step="1000"
+                               oninput="onSeekInput(event, '${sessionId}')"
+                               onchange="onSeekChange(event, '${sessionId}')">
+                        <span class="media-time">${formatMediaTime(durMs)}</span>
+                    </div>` : ''}
+                </div>
+                <div class="media-controls">
+                    <button class="media-btn" title="Previous" onclick="sendMediaControl('${sessionId}', 'previous')">⏮</button>
+                    <button class="media-btn media-btn-play" title="${isPlaying ? 'Pause' : 'Play'}"
+                            onclick="sendMediaControl('${sessionId}', '${isPlaying ? 'pause' : 'play'}')">
+                        ${isPlaying ? '⏸' : '▶'}
+                    </button>
+                    <button class="media-btn" title="Next" onclick="sendMediaControl('${sessionId}', 'next')">⏭</button>
+                </div>
+            </div>`;
+        }
+
+        function startPositionTimer(session) {
+            stopPositionTimer(session.sessionId);
+            const sessionId = session.sessionId;
+            const start = Date.now();
+            const startPos = session._localPositionMs ?? session.positionMs ?? 0;
+            const dur = session.durationMs || 0;
+
+            const timer = setInterval(() => {
+                const s = mediaSessions.get(sessionId);
+                if (!s || s.playbackState !== 'playing') {
+                    stopPositionTimer(sessionId);
+                    return;
+                }
+                const elapsed = Date.now() - start;
+                const pos = Math.min(startPos + elapsed, dur || Infinity);
+                s._localPositionMs = pos;
+
+                const posEl = document.getElementById(`media-pos-${sessionId}`);
+                if (posEl) posEl.textContent = formatMediaTime(pos);
+
+                const card = document.getElementById(`media-player-${sessionId}`);
+                if (card) {
+                    const seekEl = card.querySelector('.media-seek');
+                    if (seekEl && !seekEl.dataset.seeking) seekEl.value = pos;
+                }
+            }, 1000);
+            mediaPositionTimers.set(sessionId, timer);
+        }
+
+        function stopPositionTimer(sessionId) {
+            const t = mediaPositionTimers.get(sessionId);
+            if (t) { clearInterval(t); mediaPositionTimers.delete(sessionId); }
+        }
+
+        function onSeekInput(event, sessionId) {
+            // Mark as seeking so position timer doesn't overwrite thumb
+            event.target.dataset.seeking = '1';
+            const posEl = document.getElementById(`media-pos-${sessionId}`);
+            if (posEl) posEl.textContent = formatMediaTime(Number(event.target.value));
+        }
+
+        function onSeekChange(event, sessionId) {
+            delete event.target.dataset.seeking;
+            const posMs = Number(event.target.value);
+            sendMediaControl(sessionId, 'seekTo', posMs);
+        }
+
+        async function sendMediaControl(sessionId, action, positionMs) {
+            if (!currentUser) return;
+            try {
+                const body = { action };
+                if (positionMs != null) body.positionMs = positionMs;
+                await fetch(`/api/media-sessions/${encodeURIComponent(sessionId)}/control`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ...body, userId: currentUser.userId })
+                });
+            } catch (e) {
+                console.error('Media control error:', e);
+            }
+        }
+
         // ── SSE update routing ───────────────────────────────────────────────
         async function handleSSEUpdate(e) {
             let data = {};
             try { data = JSON.parse(e.data); } catch {}
 
-            if (data.reason === 'delete' && data.id) {
+            if (data.reason === 'media-update' && data.sessionId) {
+                // Fetch the updated session list and re-render
+                fetchMediaSessions();
+            } else if (data.reason === 'media-delete' && data.sessionId) {
+                removeMediaSessionCard(data.sessionId);
+            } else if (data.reason === 'delete' && data.id) {
                 clearReplyDraftsForNotification(data.id);
                 const el = document.getElementById(`notification-${data.id}`);
                 if (el) await animateBackendRemoval(el, data.id);
