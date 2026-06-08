@@ -801,12 +801,14 @@ Send a transport control command to the Android device via FCM.
 ```json
 {
   "userId": "<uuid>",
-  "action": "play | pause | next | previous | seekTo",
+  "action": "play | pause | next | previous | seekTo | stop",
   "positionMs": 42000
 }
 ```
 
 `positionMs` is required only for `seekTo`.
+
+`stop` terminates the media session on the Android device. In addition to sending the FCM command, the server immediately removes the session from its in-memory store and broadcasts a `media-delete` SSE event to all connected browser tabs.
 
 The server sends FCM data message: `{ type: "mediaControl", sessionId, mediaAction, positionMs? }`.
 
@@ -814,8 +816,8 @@ The server sends FCM data message: `{ type: "mediaControl", sessionId, mediaActi
 
 | Status | Description |
 |--------|-------------|
-| `200`  | `{ success: true }` — FCM sent |
-| `400`  | Missing `action` field |
+| `200`  | `{ success: true }` — FCM sent (and session removed if action was `stop`) |
+| `400`  | Missing or invalid `action` field |
 | `401`  | Invalid or missing userId |
 | `500`  | FCM delivery error |
 

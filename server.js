@@ -79,7 +79,8 @@ const mediaSessionsStore = new Map();
 
 function upsertMediaSession(userId, sessionId, data) {
   if (!mediaSessionsStore.has(userId)) mediaSessionsStore.set(userId, new Map());
-  mediaSessionsStore.get(userId).set(sessionId, { sessionId, ...data, updatedAt: new Date().toISOString() });
+  const existing = mediaSessionsStore.get(userId).get(sessionId) || {};
+  mediaSessionsStore.get(userId).set(sessionId, { ...existing, sessionId, ...data, updatedAt: new Date().toISOString() });
 }
 
 function removeMediaSession(userId, sessionId) {
@@ -936,10 +937,12 @@ app.get('/api/media-sessions', requireUserId, (req, res) => {
   res.status(200).json(getMediaSessionsForUser(req.user.user_id));
 });
 
-const VALID_MEDIA_ACTIONS = new Set(['play', 'pause', 'next', 'previous', 'seekTo']);
+const VALID_MEDIA_ACTIONS = new Set(['play', 'pause', 'next', 'previous', 'seekTo', 'stop']);
 
 // POST /api/media-sessions/:sessionId/control — send a transport control command to the device.
-// Body: { action: "play"|"pause"|"next"|"previous"|"seekTo", positionMs?: number }
+// Body: { action: "play"|"pause"|"next"|"previous"|"seekTo"|"stop", positionMs?: number }
+// The "stop" action terminates the media session on the device and immediately removes it
+// from the server store, broadcasting a media-delete event to all connected tabs.
 app.post('/api/media-sessions/:sessionId/control', requireUserId, async (req, res) => {
   if (!fcmAdmin) return res.status(503).json({ success: false, error: 'FCM not configured' });
 
@@ -956,6 +959,10 @@ app.post('/api/media-sessions/:sessionId/control', requireUserId, async (req, re
 
   try {
     await sendFcmDataMessages(userId, fcmPayload);
+    if (action === 'stop') {
+      removeMediaSession(userId, sessionId);
+      broadcastToUser(userId, 'update', { reason: 'media-delete', sessionId });
+    }
     res.status(200).json({ success: true });
   } catch (e) {
     console.error('FCM mediaControl error:', e.message);

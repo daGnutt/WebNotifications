@@ -652,6 +652,30 @@
             align-items: center;
             gap: 12px;
             transition: background-color 0.3s, border-color 0.3s;
+            position: relative;
+        }
+        .media-dismiss-btn {
+            position: absolute;
+            top: 6px;
+            right: 8px;
+            width: 22px;
+            height: 22px;
+            border-radius: 50%;
+            border: none;
+            background: none;
+            cursor: pointer;
+            font-size: 14px;
+            color: var(--header-color);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+            line-height: 1;
+            transition: background-color 0.15s, color 0.15s;
+        }
+        .media-dismiss-btn:hover { background-color: rgba(0,0,0,0.08); color: var(--text-color); }
+        @media (prefers-color-scheme: dark) {
+            .media-dismiss-btn:hover { background-color: rgba(255,255,255,0.1); }
         }
         .media-album-art {
             width: 56px;
@@ -2216,6 +2240,7 @@ function connectSSE(userId) {
 
             return `
             <div class="media-player-card" id="media-player-${sessionId}">
+                <button class="media-dismiss-btn" title="Dismiss" onclick="dismissMediaPlayer('${sessionId}')">✕</button>
                 ${artHtml}
                 <div class="media-info">
                     <div class="media-title">${escapeHtml(title)}</div>
@@ -2307,7 +2332,21 @@ function connectSSE(userId) {
             }
         }
 
-        // ── SSE update routing ───────────────────────────────────────────────
+        async function dismissMediaPlayer(sessionId) {
+            // Optimistically remove from local state and DOM immediately
+            removeMediaSessionCard(sessionId);
+            // Send stop command to device via FCM; server also removes the session and broadcasts media-delete
+            if (!currentUser) return;
+            try {
+                await fetch(`/api/media-sessions/${encodeURIComponent(sessionId)}/control`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'stop', userId: currentUser.userId })
+                });
+            } catch (e) {
+                console.error('Media dismiss error:', e);
+            }
+        }
         async function handleSSEUpdate(e) {
             let data = {};
             try { data = JSON.parse(e.data); } catch {}
