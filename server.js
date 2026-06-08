@@ -68,9 +68,6 @@ const sseClients = new Map();
 // In-memory notifications store: userId -> notification[]
 const notificationsStore = new Map();
 
-// In-memory media sessions store: userId -> Map<sessionId, session>
-const mediaSessionsStore = new Map();
-
 // In-memory set of all app names ever seen per user: userId -> Set<appName|null>
 // Intentionally ephemeral — cleared on restart.
 const seenApps = new Map();
@@ -120,7 +117,6 @@ function disconnectSseClients(userId) {
 // Delete a user and all their associated data from every table.
 function purgeUser(userId, callback) {
   notificationsStore.delete(userId);
-  mediaSessionsStore.delete(userId);
   mediaSessionsStore.delete(userId);
   db.serialize(() => {
     db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
@@ -401,25 +397,6 @@ function loadNotificationsFromDb(callback) {
     console.log(`Loaded ${rows.length} notification(s) from database`);
     if (callback) callback();
   });
-}
-
-// Media session helpers (in-memory only — sessions are re-reported on Android reconnect)
-function upsertMediaSession(userId, sessionId, data, callback) {
-  if (!mediaSessionsStore.has(userId)) mediaSessionsStore.set(userId, new Map());
-  mediaSessionsStore.get(userId).set(sessionId, { ...data, sessionId });
-  if (callback) callback(null);
-}
-
-function deleteMediaSession(userId, sessionId, callback) {
-  const userSessions = mediaSessionsStore.get(userId);
-  if (userSessions) userSessions.delete(sessionId);
-  if (callback) callback(null);
-}
-
-function getMediaSessionsForUser(userId, callback) {
-  const userSessions = mediaSessionsStore.get(userId);
-  const sessions = userSessions ? Array.from(userSessions.values()) : [];
-  callback(null, sessions);
 }
 
 // Password hashing helpers (using built-in crypto — no extra deps)
@@ -959,15 +936,19 @@ app.get('/api/media-sessions', requireUserId, (req, res) => {
   res.status(200).json(getMediaSessionsForUser(req.user.user_id));
 });
 
+const VALID_MEDIA_ACTIONS = new Set(['play', 'pause', 'next', 'previous', 'seekTo']);
+
 // POST /api/media-sessions/:sessionId/control — send a transport control command to the device.
 // Body: { action: "play"|"pause"|"next"|"previous"|"seekTo", positionMs?: number }
 app.post('/api/media-sessions/:sessionId/control', requireUserId, async (req, res) => {
+  if (!fcmAdmin) return res.status(503).json({ success: false, error: 'FCM not configured' });
+
   const userId = req.user.user_id;
   const sessionId = req.params.sessionId;
   const { action, positionMs } = req.body;
 
-  if (!action) {
-    return res.status(400).json({ success: false, error: 'action is required' });
+  if (!action || !VALID_MEDIA_ACTIONS.has(action)) {
+    return res.status(400).json({ success: false, error: `action must be one of: ${[...VALID_MEDIA_ACTIONS].join(', ')}` });
   }
 
   const fcmPayload = { type: 'mediaControl', sessionId: String(sessionId), mediaAction: String(action) };
