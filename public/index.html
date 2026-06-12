@@ -1018,12 +1018,6 @@
     </div>
 
     <script>
-        // ── Theme ────────────────────────────────────────────────────────────
-        window.matchMedia('(prefers-color-scheme: dark)').addEventListener('change', e => {
-            document.body.classList.toggle('dark-mode', e.matches);
-        });
-        document.body.classList.toggle('dark-mode', window.matchMedia('(prefers-color-scheme: dark)').matches);
-
         // ── State ────────────────────────────────────────────────────────────
         let currentUser = null;  // { userId, username }
         let hiddenApps = new Set();
@@ -1069,11 +1063,7 @@
         function getOrCreateSessionId() {
             let saved = localStorage.getItem('sessionId');
             if (!saved) {
-                // Generate a UUID v4
-                saved = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
-                    const r = Math.random() * 16 | 0;
-                    return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
-                });
+                saved = crypto.randomUUID();
                 localStorage.setItem('sessionId', saved);
             }
             return saved;
@@ -2293,6 +2283,7 @@ function connectSSE(userId) {
 
         function renderMediaPlayerCard(session) {
             const sessionId = session.sessionId;
+            const eSid = escapeHtml(sessionId);
             const isPlaying = session.playbackState === 'playing';
             const artHtml = session.albumArt
                 ? `<img class="media-album-art" src="data:image/png;base64,${session.albumArt}" alt="" onerror="this.style.display='none'">`
@@ -2307,8 +2298,8 @@ function connectSSE(userId) {
             const seekPct = durMs > 0 ? Math.min(100, (posMs / durMs) * 100) : 0;
 
             return `
-            <div class="media-player-card" id="media-player-${sessionId}">
-                <button class="media-dismiss-btn" title="Dismiss" onclick="dismissMediaPlayer('${sessionId}')">✕</button>
+            <div class="media-player-card" id="media-player-${eSid}">
+                <button class="media-dismiss-btn" title="Dismiss" onclick="dismissMediaPlayer('${eSid}')">✕</button>
                 ${artHtml}
                 <div class="media-info">
                     <div class="media-title">${escapeHtml(title)}</div>
@@ -2319,21 +2310,21 @@ function connectSSE(userId) {
                     </div>
                     ${durMs > 0 ? `
                     <div class="media-seek-row">
-                        <span class="media-time" id="media-pos-${sessionId}">${formatMediaTime(posMs)}</span>
+                        <span class="media-time" id="media-pos-${eSid}">${formatMediaTime(posMs)}</span>
                         <input class="media-seek" type="range" min="0" max="${durMs}"
                                value="${posMs}" step="1000"
-                               oninput="onSeekInput(event, '${sessionId}')"
-                               onchange="onSeekChange(event, '${sessionId}')">
+                               oninput="onSeekInput(event, '${eSid}')"
+                               onchange="onSeekChange(event, '${eSid}')">
                         <span class="media-time">${formatMediaTime(durMs)}</span>
                     </div>` : ''}
                 </div>
                 <div class="media-controls">
-                    <button class="media-btn" title="Previous" onclick="sendMediaControl('${sessionId}', 'previous')">⏮</button>
+                    <button class="media-btn" title="Previous" onclick="sendMediaControl('${eSid}', 'previous')">⏮</button>
                     <button class="media-btn media-btn-play" title="${isPlaying ? 'Pause' : 'Play'}"
-                            onclick="sendMediaControl('${sessionId}', '${isPlaying ? 'pause' : 'play'}')">
+                            onclick="sendMediaControl('${eSid}', '${isPlaying ? 'pause' : 'play'}')">
                         ${isPlaying ? '⏸' : '▶'}
                     </button>
-                    <button class="media-btn" title="Next" onclick="sendMediaControl('${sessionId}', 'next')">⏭</button>
+                    <button class="media-btn" title="Next" onclick="sendMediaControl('${eSid}', 'next')">⏭</button>
                 </div>
             </div>`;
         }

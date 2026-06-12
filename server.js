@@ -1,7 +1,6 @@
 // Web Notifications Server
 const http = require('http');
 const express = require('express');
-const bodyParser = require('body-parser');
 const cors = require('cors');
 const path = require('path');
 const crypto = require('crypto');
@@ -119,6 +118,7 @@ function disconnectSseClients(userId) {
 function purgeUser(userId, callback) {
   notificationsStore.delete(userId);
   mediaSessionsStore.delete(userId);
+  seenApps.delete(userId);
   db.serialize(() => {
     db.run('DELETE FROM notifications      WHERE user_id = ?', [userId]);
     db.run('DELETE FROM reset_codes        WHERE user_id = ?', [userId]);
@@ -147,8 +147,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
-app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 app.use(express.static('public'));
 
 // Rate limiters for auth endpoints
@@ -844,7 +844,7 @@ app.post('/api/send-push', requireUserId, async (req, res) => {
     title,
     body,
     timestamp: new Date().toISOString(),
-    id: Date.now().toString()
+    id: uuidv4()
   };
 
   addNotification(notification, userId, () => {
@@ -1304,7 +1304,7 @@ function pruneInactiveUsers() {
   db.all('SELECT user_id FROM users WHERE last_active < ?', [cutoff], (err, rows) => {
     if (err || !rows.length) return;
     const ids = rows.map(r => r.user_id);
-    ids.forEach(id => notificationsStore.delete(id));
+    ids.forEach(id => { notificationsStore.delete(id); seenApps.delete(id); });
     const placeholders = ids.map(() => '?').join(',');
     db.serialize(() => {
       db.run(`DELETE FROM notifications      WHERE user_id IN (${placeholders})`, ids);
