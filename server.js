@@ -830,6 +830,7 @@ app.post('/api/device-tokens', requireUserId, (req, res) => {
     }
     console.log('FCM device token stored for user', req.user.user_id);
     sendResyncRequest(token).catch(e => console.error('FCM resync error after token register:', e.message));
+    broadcastToUser(req.user.user_id, 'update', { reason: 'device-token-added' });
     res.status(200).json({ success: true });
   });
 });

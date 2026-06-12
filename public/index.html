@@ -637,6 +637,57 @@
         .btn-secondary { background-color: var(--border-color); color: var(--text-color); }
         .btn-danger { background-color: #f44336; color: white; }
 
+        /* ── No-phone-synced banner ───────────────────────────────────── */
+        #no-phone-banner {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            background: #fff3cd;
+            border: 1px solid #ffc107;
+            border-radius: 8px;
+            padding: 12px 16px;
+            margin-bottom: 14px;
+            font-size: 0.93em;
+            color: #7a5800;
+        }
+        @media (prefers-color-scheme: dark) {
+            #no-phone-banner {
+                background: #3a2e00;
+                border-color: #b38600;
+                color: #ffd54f;
+            }
+        }
+        .no-phone-banner-icon {
+            font-size: 1.4em;
+            flex-shrink: 0;
+        }
+        .no-phone-banner-text {
+            flex: 1;
+        }
+        .no-phone-banner-btn {
+            flex-shrink: 0;
+            background: #ffc107;
+            color: #3a2e00;
+            border: none;
+            border-radius: 5px;
+            padding: 5px 12px;
+            cursor: pointer;
+            font-size: 0.9em;
+            font-weight: 600;
+        }
+        .no-phone-banner-btn:hover {
+            background: #e6ac00;
+        }
+        @media (prefers-color-scheme: dark) {
+            .no-phone-banner-btn {
+                background: #b38600;
+                color: #1a1400;
+            }
+            .no-phone-banner-btn:hover {
+                background: #cc9d00;
+            }
+        }
+
         /* ── Media player cards ───────────────────────────────────────── */
         #media-players-container:not(:empty) {
             margin-bottom: 8px;
@@ -813,6 +864,11 @@
 
     <h1><img src="/favicon.svg" width="32" height="32" style="vertical-align:middle;margin-right:8px;">Web Notifications</h1>
     <div id="media-players-container"></div>
+    <div id="no-phone-banner" style="display:none">
+        <span class="no-phone-banner-icon">📱</span>
+        <span class="no-phone-banner-text">No phone synced — notifications from Android won't appear until you link a device.</span>
+        <button class="no-phone-banner-btn" onclick="showQRCode()">Show QR Code</button>
+    </div>
     <div id="notifications-container"></div>
 
     <!-- Floating action button -->
@@ -1248,6 +1304,7 @@ function connectSSE(userId) {
             const dot = document.getElementById('fcm-status-dot');
             const label = document.getElementById('fcm-status-label');
             const resyncBtn = document.getElementById('fcm-resync-btn');
+            const banner = document.getElementById('no-phone-banner');
             try {
                 const res = await fetch(`/api/fcm/status?userId=${encodeURIComponent(currentUser.userId)}`);
                 const data = await res.json();
@@ -1255,14 +1312,17 @@ function connectSSE(userId) {
                     dot.style.background = '#888';
                     label.textContent = 'FCM not configured on server';
                     resyncBtn.style.display = 'none';
+                    banner.style.display = 'none';
                 } else if (data.deviceCount === 0) {
                     dot.style.background = '#f0a500';
                     label.textContent = 'No Android devices registered';
                     resyncBtn.style.display = 'none';
+                    banner.style.display = '';
                 } else {
                     dot.style.background = '#4caf50';
                     label.textContent = `Active — ${data.deviceCount} device${data.deviceCount !== 1 ? 's' : ''}`;
                     resyncBtn.style.display = '';
+                    banner.style.display = 'none';
                 }
             } catch {
                 dot.style.background = '#e53935';
@@ -1379,6 +1439,7 @@ function connectSSE(userId) {
             document.getElementById('username-input').value = '';
             document.getElementById('user-info').style.display = 'none';
             document.getElementById('app-filters-section').style.display = 'none';
+            document.getElementById('no-phone-banner').style.display = 'none';
             document.getElementById('fab-label').textContent = '\u{1F464}';
             closeFlyout();
             fetchNotifications();
@@ -2351,7 +2412,9 @@ function connectSSE(userId) {
             let data = {};
             try { data = JSON.parse(e.data); } catch {}
 
-            if (data.reason === 'media-update' && data.sessionId) {
+            if (data.reason === 'device-token-added') {
+                refreshFcmStatus();
+            } else if (data.reason === 'media-update' && data.sessionId) {
                 // Fetch the updated session list and re-render
                 fetchMediaSessions();
             } else if (data.reason === 'media-delete' && data.sessionId) {
