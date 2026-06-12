@@ -1675,6 +1675,13 @@ function connectSSE(userId) {
                 notifications.forEach(n => knownApps.add(n.appName || null));
                 renderFlyoutAppFilters();
 
+                // If the no-phone banner is visible, re-check FCM status now that the
+                // server is reachable — catches cases where the SSE event was missed.
+                const noPhoneBanner = document.getElementById('no-phone-banner');
+                if (noPhoneBanner && noPhoneBanner.style.display !== 'none') {
+                    refreshFcmStatus();
+                }
+
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
 
                 if (newOnes.length > 0 && initialLoadDone) {
