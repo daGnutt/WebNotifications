@@ -431,7 +431,7 @@ async function createUser(username, password, email, callback) {
     const userId = uuidv4();
     const passwordHash = await hashPassword(password);
     const stmt = db.prepare(
-      'INSERT INTO users (user_id, username, email, password_hash, last_active) VALUES (?, ?, ?, ?, ?)'
+      'INSERT INTO users (user_id, username, email, password_hash, last_active, disable_heads_up, suppress_push_when_open) VALUES (?, ?, ?, ?, ?, 1, 1)'
     );
     stmt.run([userId, username, email || null, passwordHash, new Date().toISOString()], function(err) {
       if (err) console.error('Error creating user:', err.message);
@@ -989,7 +989,7 @@ app.post('/api/auth', authLoginLimiter, async (req, res) => {
       createUser(username, password, email, (createErr, newUser) => {
         if (createErr) return res.status(500).json({ success: false, error: 'Failed to create user' });
         console.log(`User registered: ${username} (${newUser.userId})`);
-        res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false, disableHeadsUp: false, disableHighlight: false, suppressPushWhenOpen: false, readDelaySecs: 3 } });
+        res.status(201).json({ success: true, created: true, user: { ...newUser, showAppName: false, disableHeadsUp: true, disableHighlight: false, suppressPushWhenOpen: true, readDelaySecs: 3 } });
       });
     } else {
       // Existing user — verify password
@@ -1088,7 +1088,7 @@ app.post('/api/auth/reset-confirm', authResetConfirmLimiter, (req, res) => {
         disconnectSseClients(user.user_id);
         createUser(username, newPassword, email, (createErr, newUser) => {
           if (createErr) return res.status(500).json({ success: false, error: 'Failed to recreate account' });
-          res.status(200).json({ success: true, user: { ...newUser, showAppName: false, disableHeadsUp: false, disableHighlight: false, suppressPushWhenOpen: false, readDelaySecs: 3 } });
+          res.status(200).json({ success: true, user: { ...newUser, showAppName: false, disableHeadsUp: true, disableHighlight: false, suppressPushWhenOpen: true, readDelaySecs: 3 } });
         });
       });
     });
