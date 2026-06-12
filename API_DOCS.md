@@ -394,14 +394,15 @@ Returns the FCM health for the authenticated user: whether the server has FCM co
 
 **Responses**
 
-| Status | Description             | Body                                                          |
-|--------|-------------------------|---------------------------------------------------------------|
-| `200`  | OK                      | `{ success: true, configured: bool, deviceCount: number }`   |
-| `401`  | Missing/invalid userId  | `{ success: false, error }`                                   |
-| `500`  | Server error            | `{ success: false, error }`                                   |
+| Status | Description             | Body                                                                                    |
+|--------|-------------------------|-----------------------------------------------------------------------------------------|
+| `200`  | OK                      | `{ success: true, configured: bool, deviceCount: number, lastSynced: string \| null }`  |
+| `401`  | Missing/invalid userId  | `{ success: false, error }`                                                             |
+| `500`  | Server error            | `{ success: false, error }`                                                             |
 
 - `configured`: `true` if `secrets.fcm.serviceAccount` is set and the Firebase Admin SDK initialised successfully.
 - `deviceCount`: number of FCM device tokens currently registered for the user.
+- `lastSynced`: ISO 8601 timestamp of the last time a notification was received from an Android device for this user, or `null` if no notification has been received yet.
 
 ---
 

@@ -954,6 +954,7 @@
                         <span id="fcm-status-label" style="font-size:12px;opacity:0.7">Checking…</span>
                         <button id="fcm-resync-btn" class="btn btn-secondary" style="margin-left:auto;padding:2px 8px;font-size:11px;display:none" onclick="triggerFcmResync()">Resync</button>
                     </div>
+                    <span id="fcm-last-sync" style="font-size:11px;opacity:0.55;margin-top:2px;display:block"></span>
                 </div>
 
                 <!-- Preferences -->
@@ -1295,9 +1296,11 @@ function connectSSE(userId) {
             const label = document.getElementById('fcm-status-label');
             const resyncBtn = document.getElementById('fcm-resync-btn');
             const banner = document.getElementById('no-phone-banner');
+            const lastSync = document.getElementById('fcm-last-sync');
             try {
                 const res = await fetch(`/api/fcm/status?userId=${encodeURIComponent(currentUser.userId)}`);
                 const data = await res.json();
+                lastSync.textContent = data.lastSynced ? `Last sync: ${relativeTime(data.lastSynced)}` : 'Never synced';
                 if (!data.configured) {
                     dot.style.background = '#888';
                     label.textContent = 'FCM not configured on server';
@@ -1318,6 +1321,7 @@ function connectSSE(userId) {
                 dot.style.background = '#e53935';
                 label.textContent = 'Could not check FCM status';
                 resyncBtn.style.display = 'none';
+                lastSync.textContent = '';
             }
         }
 

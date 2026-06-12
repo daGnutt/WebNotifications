@@ -213,7 +213,8 @@ function initializeDatabase(callback) {
     db.run(`ALTER TABLE users ADD COLUMN disable_notification_highlight INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN suppress_push_when_open INTEGER DEFAULT 0`, () => {});
     db.run(`ALTER TABLE users ADD COLUMN read_delay_secs INTEGER DEFAULT 3`, () => {});
-    
+    db.run(`ALTER TABLE users ADD COLUMN phone_last_synced TEXT`, () => {});
+
     // Create push_subscriptions table with user_id
     db.run(`
       CREATE TABLE IF NOT EXISTS push_subscriptions (
@@ -633,6 +634,11 @@ app.post('/api/notifications', requireUserId, async (req, res) => {
   // Store notification in memory
   addNotification(notification, userId, () => {
     console.log('Received notification:', sanitizeForLog(notification));
+
+    // Record the time this phone last sent a notification
+    if (userId) {
+      db.run('UPDATE users SET phone_last_synced = ? WHERE user_id = ?', [new Date().toISOString(), userId], () => {});
+    }
 
     // Broadcast to any open SSE connections for this user
     if (userId) broadcastToUser(userId, 'update', { reason: 'new', id: notification.id });
@@ -1262,7 +1268,8 @@ app.get('/api/fcm/status', requireUserId, (req, res) => {
     res.status(200).json({
       success: true,
       configured: !!fcmAdmin,
-      deviceCount: rows.length
+      deviceCount: rows.length,
+      lastSynced: req.user.phone_last_synced || null
     });
   });
 });
