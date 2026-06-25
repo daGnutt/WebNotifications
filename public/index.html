@@ -1568,6 +1568,35 @@ function connectSSE(userId) {
             }
         }
 
+        function closeSystemNotification(id) {
+            if ('serviceWorker' in navigator && 'Notification' in window) {
+                navigator.serviceWorker.ready.then(registration => {
+                    if (registration.getNotifications) {
+                        registration.getNotifications().then(notifications => {
+                            notifications.forEach(n => {
+                                if (n.data && n.data.notificationId === id) {
+                                    n.close();
+                                }
+                            });
+                        }).catch(err => console.error('Error getting notifications:', err));
+                    }
+                }).catch(err => console.error('ServiceWorker ready error:', err));
+            }
+        }
+
+        function clearAllSystemNotifications() {
+            if ('serviceWorker' in navigator && 'Notification' in window) {
+                navigator.serviceWorker.ready.then(registration => {
+                    if (registration.getNotifications) {
+                        registration.getNotifications().then(notifications => {
+                            notifications.forEach(n => n.close());
+                        }).catch(err => console.error('Error getting notifications:', err));
+                    }
+                }).catch(err => console.error('ServiceWorker ready error:', err));
+            }
+        }
+
+
         function requestNotificationPermission() {
             if (!('Notification' in window)) return;
             if (Notification.permission === 'granted') return;
@@ -1674,6 +1703,16 @@ function connectSSE(userId) {
                 const noPhoneBanner = document.getElementById('no-phone-banner');
                 if (noPhoneBanner && noPhoneBanner.style.display !== 'none') {
                     refreshFcmStatus();
+                }
+
+                // Reconcile removed notifications (dismissed on another device)
+                const activeIds = new Set(notifications.map(n => n.id));
+                for (const id of [...shownNotificationIds]) {
+                    if (!activeIds.has(id)) {
+                        shownNotificationIds.delete(id);
+                        closeSystemNotification(id);
+                        clearReplyDraftsForNotification(id);
+                    }
                 }
 
                 const newOnes = notifications.filter(n => !shownNotificationIds.has(n.id));
@@ -2455,6 +2494,8 @@ function connectSSE(userId) {
                     setTimeout(() => {
                         el.remove();
                         shownNotificationIds.delete(id);
+                        allNotifications = allNotifications.filter(n => n.id !== id);
+                        closeSystemNotification(id);
                         updateTitleWithCount();
                         resolve();
                     }, 200);
@@ -2469,6 +2510,8 @@ function connectSSE(userId) {
             clearReplyDraftsForNotification(id);
             el.remove();
             shownNotificationIds.delete(id);
+            allNotifications = allNotifications.filter(n => n.id !== id);
+            closeSystemNotification(id);
             updateTitleWithCount();
             try {
                 await fetch(`/api/notifications/${id}?userId=${currentUser.userId}`, { method: 'DELETE' });
@@ -2617,6 +2660,7 @@ function connectSSE(userId) {
         // unfocused. After the configured read delay (default 3 s) of continuous
         // focus the badge is cleared. A delay of 0 clears it immediately.
         window.addEventListener('focus', () => {
+            clearAllSystemNotifications();
             if (badgeCount === 0 && silentBadgeCount === 0 || focusTimer) return;
             const delaySecs = currentUser?.readDelaySecs ?? 3;
             const clearBadge = () => {
@@ -2640,6 +2684,7 @@ function connectSSE(userId) {
         // notifications that arrived while hidden trigger the heads-up animation now.
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible' && currentUser) {
+                clearAllSystemNotifications();
                 fetchNotifications();
             }
         });
